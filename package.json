@@ -1,0 +1,23 @@
+{
+  "name": "sanpitsu",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+
+  "scripts": {
+    "dev": "node server/index.js",
+    "build": "vite build",
+    "start": "node server/index.js --prod",
+    "deploy": "npm run build && npx firebase-tools deploy"
+  },
+  "dependencies": {
+    "dotenv": "^16.6.1",
+    "express": "^5.1.0",
+    "firebase": "^11.10.0",
+    "firebase-admin": "^13.4.0",
+    "firebase-functions": "^6.4.0"
+  },
+  "devDependencies": {
+    "vite": "^6.3.5"
+  }
+}
