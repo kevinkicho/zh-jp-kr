@@ -19,6 +19,7 @@ import {
   orderBy,
   query,
   serverTimestamp,
+  startAfter,
 } from 'firebase/firestore';
 import { getDatabase, onValue, ref, update } from 'firebase/database';
 
@@ -102,15 +103,23 @@ export function saveHistory(uid, entry) {
   });
 }
 
-export async function loadHistory(uid, max = 80) {
-  if (!db || !uid) return [];
-  const q = query(
-    collection(db, 'users', uid, 'history'),
-    orderBy('createdAt', 'desc'),
-    limit(max)
-  );
-  const snap = await getDocs(q);
-  return snap.docs.map((item) => ({ id: item.id, ...item.data() }));
+export async function loadHistoryPage(uid, { pageSize = 20, cursor = null, sort = 'newest' } = {}) {
+  if (!db || !uid) return { items: [], cursor: null, done: true };
+  const order =
+    sort === 'oldest'
+      ? orderBy('createdAt', 'asc')
+      : sort === 'az'
+        ? orderBy('source')
+        : orderBy('createdAt', 'desc');
+  const parts = [collection(db, 'users', uid, 'history'), order];
+  if (cursor) parts.push(startAfter(cursor));
+  parts.push(limit(pageSize));
+  const snap = await getDocs(query(...parts));
+  return {
+    items: snap.docs.map((item) => ({ id: item.id, ...item.data() })),
+    cursor: snap.docs[snap.docs.length - 1] || null,
+    done: snap.docs.length < pageSize,
+  };
 }
 
 export function deleteHistory(uid, id) {

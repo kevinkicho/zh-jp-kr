@@ -1,7 +1,8 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" translate="no" class="notranslate">
   <head>
     <meta charset="UTF-8" />
+    <meta name="google" content="notranslate" />
     <meta
       name="viewport"
       content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no"
@@ -23,16 +24,17 @@
       href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;600&family=Noto+Sans+KR:wght@400;600&family=Noto+Sans+SC:wght@400;600&family=Noto+Sans+TC:wght@400;600&family=Noto+Serif+JP:wght@600&family=Noto+Serif+KR:wght@600&family=Noto+Serif+SC:wght@600&family=Noto+Serif+TC:wght@600&display=swap"
       rel="stylesheet"
     />
-    <title>三筆 · Draw 中日韓</title>
+    <title>三筆 Draw 中日韓</title>
   </head>
   <body>
     <div id="app">
+      <button type="button" id="keyboard-trap" class="keyboard-trap" tabindex="-1" aria-hidden="true"></button>
       <header class="top">
         <div class="brand">
           <span class="seal" aria-hidden="true">三</span>
           <div>
             <h1>三筆</h1>
-            <p>draw · translate · 中日韓</p>
+            <p>draw translate 中日韓</p>
           </div>
         </div>
         <div class="top-right">
@@ -54,14 +56,15 @@
         </div>
       </header>
 
-      <div class="composer">
+      <form class="composer" id="phrase-form" action="#" method="post" autocomplete="off" novalidate>
         <button type="button" class="icon-btn" id="backspace" aria-label="Delete last character">
           ⌫
         </button>
         <input
           id="phrase"
-          type="text"
-          enterkeyhint="search"
+          type="search"
+          enterkeyhint="done"
+          inputmode="search"
           autocomplete="off"
           autocorrect="off"
           autocapitalize="off"
@@ -69,8 +72,9 @@
           placeholder="Draw or type…"
           lang="zh-CN"
         />
+        <button type="submit" class="composer-submit" tabindex="-1">Done</button>
         <button type="button" class="icon-btn" id="clear-text" aria-label="Clear text">✕</button>
-      </div>
+      </form>
 
       <div class="workspace">
         <section class="pad" id="pad">
@@ -88,28 +92,33 @@
         </div>
       </div>
 
-      <section class="results" id="results">
-        <article class="card english" data-key="en" data-lang="en-US" data-text="" title="Tap to speak, hold to copy">
+      <section class="results notranslate" id="results" translate="no">
+        <article class="card english notranslate" translate="no" data-key="en" data-lang="en-US" data-text="" title="Tap to speak, hold to copy">
+          <button type="button" class="card-expand" aria-label="View full translation" hidden>⤢</button>
           <p class="text"></p>
           <p class="reading" hidden></p>
           <p class="explain" hidden></p>
         </article>
-        <article class="card" data-key="zh_CN" data-lang="zh-CN" data-text="" title="Tap to speak, hold to copy">
+        <article class="card notranslate" translate="no" data-key="zh_CN" data-lang="zh-CN" data-text="" title="Tap to speak, hold to copy">
+          <button type="button" class="card-expand" aria-label="View full translation" hidden>⤢</button>
           <p class="text"></p>
           <p class="reading" hidden></p>
           <p class="explain" hidden></p>
         </article>
-        <article class="card" data-key="zh_TW" data-lang="zh-TW" data-text="" title="Tap to speak, hold to copy">
+        <article class="card notranslate" translate="no" data-key="zh_TW" data-lang="zh-TW" data-text="" title="Tap to speak, hold to copy">
+          <button type="button" class="card-expand" aria-label="View full translation" hidden>⤢</button>
           <p class="text"></p>
           <p class="reading" hidden></p>
           <p class="explain" hidden></p>
         </article>
-        <article class="card" data-key="ko" data-lang="ko-KR" data-text="" title="Tap to speak, hold to copy">
+        <article class="card notranslate" translate="no" data-key="ko" data-lang="ko-KR" data-text="" title="Tap to speak, hold to copy">
+          <button type="button" class="card-expand" aria-label="View full translation" hidden>⤢</button>
           <p class="text"></p>
           <p class="reading" hidden></p>
           <p class="explain" hidden></p>
         </article>
-        <article class="card" data-key="ja" data-lang="ja-JP" data-text="" title="Tap to speak, hold to copy">
+        <article class="card notranslate" translate="no" data-key="ja" data-lang="ja-JP" data-text="" title="Tap to speak, hold to copy">
+          <button type="button" class="card-expand" aria-label="View full translation" hidden>⤢</button>
           <p class="text"></p>
           <p class="reading" hidden></p>
           <p class="explain" hidden></p>
@@ -136,8 +145,45 @@
           <h2>History</h2>
           <button type="button" class="icon-btn sheet-close" aria-label="Close">✕</button>
         </div>
+        <div class="history-tools" id="history-tools" hidden>
+          <input
+            id="history-search"
+            type="search"
+            enterkeyhint="search"
+            placeholder="Search"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <div class="history-filters">
+            <select id="history-lang" aria-label="Filter language">
+              <option value="">All</option>
+              <option value="en">English</option>
+              <option value="zh_CN">简体中文</option>
+              <option value="zh_TW">繁體中文</option>
+              <option value="ja">日本語</option>
+              <option value="ko">한국어</option>
+            </select>
+            <select id="history-sort" aria-label="Sort">
+              <option value="newest">Newest</option>
+              <option value="oldest">Oldest</option>
+              <option value="az">A–Z</option>
+            </select>
+          </div>
+        </div>
         <div class="sheet-body" id="history-list">
           <p class="empty-note">Sign in to keep translations.</p>
+        </div>
+      </div>
+
+      <div class="sheet" id="card-sheet" hidden>
+        <div class="sheet-head">
+          <h2 id="card-sheet-title">Translation</h2>
+          <button type="button" class="icon-btn sheet-close" aria-label="Close">✕</button>
+        </div>
+        <div class="sheet-body card-sheet-body notranslate" id="card-sheet-body" translate="no" title="Tap to speak, hold to copy">
+          <p class="card-sheet-text" id="card-sheet-text"></p>
+          <p class="card-sheet-reading" id="card-sheet-reading" hidden></p>
+          <p class="card-sheet-hint">Tap to speak, hold to copy</p>
         </div>
       </div>
 

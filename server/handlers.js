@@ -1,53 +1,6 @@
 import { detectSourceLang } from '../src/detect.js';
+import { ollamaEnabled, translateWithOllama } from '../functions/ollama.js';
 import { firebaseReady } from './firebase.js';
-
-const TRANSLATION_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['zh', 'ja', 'ko', 'en', 'gloss'],
-  properties: {
-    zh: {
-      type: 'object',
-      additionalProperties: false,
-      required: ['simplified', 'traditional', 'pinyin'],
-      properties: {
-        simplified: { type: 'string' },
-        traditional: { type: 'string' },
-        pinyin: { type: 'string' },
-      },
-    },
-    ja: {
-      type: 'object',
-      additionalProperties: false,
-      required: ['text', 'kana', 'romaji'],
-      properties: {
-        text: { type: 'string' },
-        kana: { type: 'string' },
-        romaji: { type: 'string' },
-      },
-    },
-    ko: {
-      type: 'object',
-      additionalProperties: false,
-      required: ['text', 'romanization', 'hanja', 'explanation'],
-      properties: {
-        text: { type: 'string' },
-        romanization: { type: 'string' },
-        hanja: { type: 'string' },
-        explanation: { type: 'string' },
-      },
-    },
-    gloss: { type: 'string' },
-    en: {
-      type: 'object',
-      additionalProperties: false,
-      required: ['text'],
-      properties: {
-        text: { type: 'string' },
-      },
-    },
-  },
-};
 
 const LANG_NAMES = {
   en: 'English',
@@ -285,55 +238,6 @@ async function translateFallback(text, sourceLang) {
   return result;
 }
 
-async function translateXai(text, sourceLang) {
-  const key = process.env.XAI_API_KEY;
-  if (!key) return null;
-
-  const response = await fetch('https://api.x.ai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${key}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'grok-4.6',
-      temperature: 0.2,
-      messages: [
-        {
-          role: 'system',
-          content:
-            'You are a precise CJK translator and linguist. Given text written in Chinese, Japanese, or Korean, return natural translations in all three languages. Translate meaning, not character-by-character, unless a shared hanzi/kanji/hanja is the natural equivalent. Japanese `text` is the natural written form; `kana` is the full hiragana reading; `romaji` is Hepburn. Chinese includes simplified, traditional, and Hanyu Pinyin with tone marks. Korean `text` is Hangul; `romanization` is Revised Romanization (lowercase); `hanja` is the hanja form if it exists, else empty; `explanation` is a short English meaning. `gloss` is a short English meaning. Keep the source language natural (do not over-translate it).',
-        },
-        {
-          role: 'user',
-          content: `Source language: ${LANG_NAMES[sourceLang] || sourceLang}\nText: ${text}`,
-        },
-      ],
-      response_format: {
-        type: 'json_schema',
-        json_schema: {
-          name: 'cjk_translation',
-          schema: TRANSLATION_SCHEMA,
-          strict: true,
-        },
-      },
-    }),
-  });
-
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(`Translation HTTP ${response.status}: ${detail.slice(0, 200)}`);
-  }
-
-  const data = await response.json();
-  const content = data?.choices?.[0]?.message?.content;
-  if (!content) throw new Error('Empty translation response.');
-  const parsed = JSON.parse(content);
-  parsed.provider = 'xai';
-  parsed.sourceLang = sourceLang;
-  return parsed;
-}
-
 export async function translateHandler(req, res) {
   try {
     const text = String(req.body?.text || '').trim();
@@ -348,9 +252,9 @@ export async function translateHandler(req, res) {
 
     let result = null;
     try {
-      result = await translateXai(text, language);
+      result = await translateWithOllama({ text, sourceLang: language });
     } catch (error) {
-      console.error('xAI translation failed, using fallback:', error.message);
+      console.error('Ollama translation failed, using Google fallback:', error.message);
     }
 
     if (!result) {
@@ -373,6 +277,7 @@ export async function translateHandler(req, res) {
 export function healthHandler(_req, res) {
   res.json({
     ok: true,
+    hasOllama: ollamaEnabled(),
     hasXai: Boolean(process.env.XAI_API_KEY),
     firebase: firebaseReady(),
   });

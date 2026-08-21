@@ -4,7 +4,7 @@ import { copyText, detectSourceLang, langById, recognize, speak, translate } fro
 import {
   deleteHistory,
   firebaseEnabled,
-  loadHistory,
+  loadHistoryPage,
   saveHistory,
   savePrefs,
   signInWithGoogle,
@@ -27,7 +27,16 @@ const backdropEl = document.getElementById('sheet-backdrop');
 const menuSheet = document.getElementById('menu-sheet');
 const historySheet = document.getElementById('history-sheet');
 const settingsSheet = document.getElementById('settings-sheet');
+const cardSheet = document.getElementById('card-sheet');
+const cardSheetTitle = document.getElementById('card-sheet-title');
+const cardSheetBody = document.getElementById('card-sheet-body');
+const cardSheetText = document.getElementById('card-sheet-text');
+const cardSheetReading = document.getElementById('card-sheet-reading');
 const historyListEl = document.getElementById('history-list');
+const historyToolsEl = document.getElementById('history-tools');
+const historySearchEl = document.getElementById('history-search');
+const historyLangEl = document.getElementById('history-lang');
+const historySortEl = document.getElementById('history-sort');
 const settingLayoutEl = document.getElementById('setting-layout');
 const settingHistoryEl = document.getElementById('setting-history');
 const settingSpeakEl = document.getElementById('setting-speak');
@@ -38,13 +47,21 @@ let layout = localStorage.getItem('sanpitsu-layout') === 'stack' ? 'stack' : 'gr
 
 let candidates = [];
 let recognizeTimer = 0;
-let translateTimer = 0;
 let recognizeSeq = 0;
 let translateSeq = 0;
+let lastTranslated = '';
 let user = null;
 let applyingRemotePrefs = false;
 let lastSavedHistory = '';
 let historyItems = [];
+let historyCursor = null;
+let historyDone = false;
+let historyLoading = false;
+let historySearch = '';
+let historyLang = '';
+let historySort = 'newest';
+let historySearchTimer = 0;
+const HISTORY_PAGE = 20;
 let saveHistoryEnabled = localStorage.getItem('sanpitsu-save-history') !== '0';
 let speakAfterTranslate = localStorage.getItem('sanpitsu-speak') === '1';
 
@@ -115,7 +132,6 @@ function appendText(value) {
   candidates = [];
   renderCandidates();
   updateHint();
-  queueTranslate();
 }
 
 async function runRecognize() {
@@ -159,21 +175,32 @@ function syncLangFromText() {
   applyLanguage();
 }
 
+function setDisplay(el, value) {
+  if (!el) return;
+  el.textContent = '';
+  if (value) el.dataset.display = value;
+  else delete el.dataset.display;
+}
+
 function fillCard(key, { text, reading, explain, speakLang, isSource }) {
   const card = resultsEl.querySelector(`[data-key="${key}"]`);
   if (!card) return;
   card.classList.toggle('source', Boolean(isSource && text));
   card.dataset.text = text;
   card.dataset.lang = speakLang;
-  card.querySelector('.text').textContent = text;
+  card.lang = speakLang;
+  card.setAttribute('aria-label', text || langById(key).name);
+  setDisplay(card.querySelector('.text'), text);
   const readingEl = card.querySelector('.reading');
-  readingEl.textContent = reading;
+  setDisplay(readingEl, reading);
   readingEl.hidden = !reading;
   const explainEl = card.querySelector('.explain');
   if (explainEl) {
-    explainEl.textContent = explain || '';
+    setDisplay(explainEl, explain || '');
     explainEl.hidden = !explain;
   }
+  const expand = card.querySelector('.card-expand');
+  if (expand) expand.hidden = !text;
 }
 
 function renderResults(data) {
@@ -216,16 +243,16 @@ function renderResults(data) {
     text: koText,
     reading: [
       data.ko?.romanization,
-      data.ko?.hanja ? `한자 ${data.ko.hanja}` : '',
+      data.ko?.hanja || '',
     ]
       .filter(Boolean)
-      .join(' · '),
+      .join('  '),
     speakLang: 'ko-KR',
     isSource: fromLang === 'ko',
   });
   fillCard('ja', {
     text: jaText,
-    reading: [data.ja?.kana, data.ja?.romaji].filter(Boolean).join(' · '),
+    reading: [data.ja?.kana, data.ja?.romaji].filter(Boolean).join('  '),
     speakLang: 'ja-JP',
     isSource: fromLang === 'ja',
   });
@@ -234,14 +261,18 @@ function renderResults(data) {
 async function runTranslate() {
   const text = phraseEl.value.trim();
   if (!text) {
+    lastTranslated = '';
     renderResults(null);
     return;
   }
+  const stamp = `${language}:${text}`;
+  if (stamp === lastTranslated) return;
   const seq = ++translateSeq;
   setStatus('Translating…');
   try {
     const data = await translate({ text, language });
     if (seq !== translateSeq) return;
+    lastTranslated = stamp;
     renderResults(data);
     setStatus('');
     persistHistory(text, data);
@@ -265,11 +296,6 @@ async function runTranslate() {
   }
 }
 
-function queueTranslate() {
-  clearTimeout(translateTimer);
-  translateTimer = window.setTimeout(runTranslate, 450);
-}
-
 document.querySelector('.layouts').addEventListener('click', (event) => {
   const button = event.target.closest('button[data-layout]');
   if (!button || button.dataset.layout === layout) return;
@@ -281,7 +307,6 @@ document.getElementById('lang-select').addEventListener('change', (event) => {
   language = event.target.value;
   applyLanguage();
   if (pad.hasInk()) queueRecognize();
-  if (phraseEl.value.trim()) queueTranslate();
 });
 
 candidatesEl.addEventListener('click', (event) => {
@@ -292,25 +317,66 @@ candidatesEl.addEventListener('click', (event) => {
 
 let cardPressTimer = 0;
 let cardLongPress = false;
+let cardPointer = { x: 0, y: 0 };
 
-resultsEl.addEventListener('pointerdown', (event) => {
-  const card = event.target.closest('.card');
-  if (!card?.dataset.text) return;
-  cardLongPress = false;
-  clearTimeout(cardPressTimer);
-  cardPressTimer = window.setTimeout(async () => {
-    cardLongPress = true;
-    await copyText(card.dataset.text);
-    setStatus('Copied');
-    setTimeout(() => setStatus(''), 800);
-  }, 480);
+function cardPointerMoved(event) {
+  return Math.hypot(event.clientX - cardPointer.x, event.clientY - cardPointer.y) > 10;
+}
+
+function suppressBrowserTextGestures(event) {
+  event.preventDefault();
+  event.stopPropagation();
+  window.getSelection?.()?.removeAllRanges();
+}
+
+resultsEl.addEventListener(
+  'touchstart',
+  (event) => {
+    if (event.target.closest('.card-expand')) return;
+    if (event.target.closest('.card')?.dataset.text) suppressBrowserTextGestures(event);
+  },
+  { passive: false }
+);
+resultsEl.addEventListener('selectstart', (event) => {
+  if (event.target.closest('.card')) event.preventDefault();
+});
+resultsEl.addEventListener('dragstart', (event) => {
+  if (event.target.closest('.card')) event.preventDefault();
+});
+
+resultsEl.addEventListener(
+  'pointerdown',
+  (event) => {
+    if (event.target.closest('.card-expand')) return;
+    const card = event.target.closest('.card');
+    if (!card?.dataset.text) return;
+    suppressBrowserTextGestures(event);
+    cardLongPress = false;
+    cardPointer = { x: event.clientX, y: event.clientY };
+    clearTimeout(cardPressTimer);
+    cardPressTimer = window.setTimeout(async () => {
+      cardLongPress = true;
+      await copyText(card.dataset.text);
+      setStatus('Copied');
+      setTimeout(() => setStatus(''), 800);
+    }, 480);
+  },
+  { passive: false }
+);
+
+resultsEl.addEventListener('pointermove', (event) => {
+  if (!cardPressTimer) return;
+  if (cardPointerMoved(event)) clearTimeout(cardPressTimer);
 });
 
 resultsEl.addEventListener('pointerup', (event) => {
   clearTimeout(cardPressTimer);
+  if (event.target.closest('.card-expand')) return;
   const card = event.target.closest('.card');
   if (!card?.dataset.text || cardLongPress) return;
   if (event.pointerType === 'mouse' && event.button !== 0) return;
+  if (cardPointerMoved(event)) return;
+  window.getSelection?.()?.removeAllRanges();
   speak(card.dataset.text, card.dataset.lang);
 });
 
@@ -320,6 +386,65 @@ resultsEl.addEventListener('pointercancel', () => {
 
 resultsEl.addEventListener('pointerleave', (event) => {
   if (event.target === resultsEl) clearTimeout(cardPressTimer);
+});
+
+resultsEl.addEventListener('click', (event) => {
+  const expand = event.target.closest('.card-expand');
+  if (expand) {
+    event.preventDefault();
+    event.stopPropagation();
+    openCardSheet(expand.closest('.card'));
+    return;
+  }
+  if (event.target.closest('.card')) event.preventDefault();
+});
+
+let sheetPressTimer = 0;
+let sheetLongPress = false;
+let sheetPointer = { x: 0, y: 0 };
+
+cardSheetBody.addEventListener(
+  'touchstart',
+  (event) => {
+    if (cardSheetBody.dataset.text) suppressBrowserTextGestures(event);
+  },
+  { passive: false }
+);
+cardSheetBody.addEventListener('selectstart', (event) => event.preventDefault());
+cardSheetBody.addEventListener(
+  'pointerdown',
+  (event) => {
+    if (!cardSheetBody.dataset.text) return;
+    suppressBrowserTextGestures(event);
+    sheetLongPress = false;
+    sheetPointer = { x: event.clientX, y: event.clientY };
+    clearTimeout(sheetPressTimer);
+    sheetPressTimer = window.setTimeout(async () => {
+      sheetLongPress = true;
+      await copyText(cardSheetBody.dataset.text);
+      setStatus('Copied');
+      setTimeout(() => setStatus(''), 800);
+    }, 480);
+  },
+  { passive: false }
+);
+cardSheetBody.addEventListener('pointermove', (event) => {
+  if (!sheetPressTimer) return;
+  if (Math.hypot(event.clientX - sheetPointer.x, event.clientY - sheetPointer.y) > 10) {
+    clearTimeout(sheetPressTimer);
+  }
+});
+cardSheetBody.addEventListener('pointerup', (event) => {
+  clearTimeout(sheetPressTimer);
+  if (!cardSheetBody.dataset.text || sheetLongPress) return;
+  if (Math.hypot(event.clientX - sheetPointer.x, event.clientY - sheetPointer.y) > 10) return;
+  speak(cardSheetBody.dataset.text, cardSheetBody.dataset.lang);
+});
+cardSheetBody.addEventListener('pointercancel', () => clearTimeout(sheetPressTimer));
+cardSheetBody.addEventListener('contextmenu', (event) => event.preventDefault());
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && !backdropEl.hidden) closeSheets();
 });
 
 resultsEl.addEventListener('contextmenu', (event) => {
@@ -346,38 +471,85 @@ document.getElementById('clear').addEventListener('click', () => {
 });
 
 document.getElementById('accept').addEventListener('click', () => {
-  if (candidates[0]) {
-    appendText(candidates[0]);
+  if (candidates[0]) appendText(candidates[0]);
+  else if (pad.hasInk()) {
+    runRecognize();
     return;
   }
-  if (pad.hasInk()) runRecognize();
+  if (phraseEl.value.trim()) runTranslate();
 });
 
 document.getElementById('backspace').addEventListener('click', () => {
   phraseEl.value = [...phraseEl.value].slice(0, -1).join('');
-  queueTranslate();
+  if (!phraseEl.value.trim()) {
+    lastTranslated = '';
+    renderResults(null);
+  }
 });
 
 document.getElementById('clear-text').addEventListener('click', () => {
   phraseEl.value = '';
+  lastTranslated = '';
   renderResults(null);
   setStatus('');
 });
 
+const keyboardTrap = document.getElementById('keyboard-trap');
+
+function hideKeyboard() {
+  phraseEl.readOnly = true;
+  phraseEl.setAttribute('inputmode', 'none');
+  phraseEl.blur();
+  if (keyboardTrap) {
+    keyboardTrap.focus({ preventScroll: true });
+    keyboardTrap.blur();
+  }
+  if (document.activeElement && document.activeElement !== document.body) {
+    document.activeElement.blur();
+  }
+  window.scrollTo(0, 0);
+  window.setTimeout(() => {
+    phraseEl.readOnly = false;
+    phraseEl.setAttribute('inputmode', 'search');
+  }, 120);
+}
+
+function submitPhrase(event) {
+  event?.preventDefault();
+  hideKeyboard();
+  runTranslate();
+}
+
+function isPhraseSubmitKey(event) {
+  return event.key === 'Enter' || event.key === 'Go' || event.key === 'Done' || event.key === 'Search';
+}
+
 phraseEl.addEventListener('input', (event) => {
   if (!event.isComposing) syncLangFromText();
-  queueTranslate();
 });
 phraseEl.addEventListener('compositionend', () => {
   syncLangFromText();
-  queueTranslate();
 });
 phraseEl.addEventListener('keydown', (event) => {
-  if (event.key === 'Enter') {
-    event.preventDefault();
-    runTranslate();
-  }
+  if (!isPhraseSubmitKey(event)) return;
+  if (event.isComposing) return;
+  submitPhrase(event);
 });
+phraseEl.addEventListener('keyup', (event) => {
+  if (!isPhraseSubmitKey(event) || event.isComposing) return;
+  hideKeyboard();
+});
+phraseEl.addEventListener('search', submitPhrase);
+document.getElementById('phrase-form').addEventListener('submit', submitPhrase);
+appEl.addEventListener(
+  'pointerdown',
+  (event) => {
+    if (document.activeElement !== phraseEl) return;
+    if (event.target.closest('#phrase-form')) return;
+    hideKeyboard();
+  },
+  true
+);
 
 pad.on('change', updateHint);
 pad.on('strokeEnd', queueRecognize);
@@ -403,6 +575,23 @@ function closeSheets() {
   menuSheet.hidden = true;
   historySheet.hidden = true;
   settingsSheet.hidden = true;
+  cardSheet.hidden = true;
+}
+
+function openCardSheet(card) {
+  const text = card?.dataset.text;
+  if (!text) return;
+  hideKeyboard();
+  const lang = langById(card.dataset.key);
+  cardSheetTitle.textContent = lang.name;
+  setDisplay(cardSheetText, text);
+  cardSheetText.lang = card.dataset.lang || lang.htmlLang;
+  const reading = card.querySelector('.reading')?.dataset.display || '';
+  setDisplay(cardSheetReading, reading);
+  cardSheetReading.hidden = !reading;
+  cardSheetBody.dataset.text = text;
+  cardSheetBody.dataset.lang = card.dataset.lang || lang.tts;
+  openSheet(cardSheet);
 }
 
 function openSheet(el) {
@@ -427,7 +616,7 @@ function historyPreview(entry) {
   ]
     .filter(Boolean)
     .slice(0, 3)
-    .join(' · ');
+    .join('  ');
 }
 
 function historyWhen(entry) {
@@ -440,52 +629,178 @@ function historyWhen(entry) {
     : date.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
+function historyLangBlock(label, text, reading) {
+  if (!text) return '';
+  const read = reading
+    ? `<span class="history-reading">${escapeHtml(reading)}</span>`
+    : '';
+  return `<p class="history-line"><span class="history-lang">${label}</span><span class="history-block"><span class="history-main">${escapeHtml(text)}</span>${read}</span></p>`;
+}
+
+function historyRowHtml(item) {
+  const when = historyWhen(item);
+  const zh = item.zh?.simplified || '';
+  const zhT = item.zh?.traditional || '';
+  const pinyin = item.zh?.pinyin || '';
+  const ko = item.ko?.text || '';
+  const koReading = [item.ko?.romanization, item.ko?.hanja].filter(Boolean).join('  ');
+  const ja = item.ja?.text || '';
+  const jaReading = [item.ja?.kana, item.ja?.romaji].filter(Boolean).join('  ');
+  const en = item.en?.text || item.gloss || '';
+  const enReading = item.gloss && item.gloss !== en ? item.gloss : '';
+  return `<div class="history-row" data-id="${escapeHtml(item.id)}">
+    <div class="history-item" role="button" tabindex="0">
+      <div class="history-top">
+        <div class="history-source">${escapeHtml(item.source || '')}</div>
+        <div class="history-time">${escapeHtml(when)}</div>
+      </div>
+      <div class="history-meta">${escapeHtml(historyPreview(item))}</div>
+      <div class="history-detail">
+        ${historyLangBlock('EN', en, enReading)}
+        ${historyLangBlock('简', zh, pinyin)}
+        ${historyLangBlock('繁', zhT, pinyin)}
+        ${historyLangBlock('한', ko, koReading)}
+        ${historyLangBlock('日', ja, jaReading)}
+        <button type="button" class="history-load">Load</button>
+      </div>
+    </div>
+    <button type="button" class="history-delete" aria-label="Delete">✕</button>
+  </div>`;
+}
+
+function historySentinel() {
+  return historyListEl.querySelector('.history-sentinel');
+}
+
+function historyMatches(item) {
+  if (historyLang && item.language !== historyLang) return false;
+  const needle = historySearch.trim().toLowerCase();
+  if (!needle) return true;
+  const haystack = [
+    item.source,
+    item.en?.text,
+    item.zh?.simplified,
+    item.zh?.traditional,
+    item.zh?.pinyin,
+    item.ja?.text,
+    item.ja?.kana,
+    item.ja?.romaji,
+    item.ko?.text,
+    item.ko?.romanization,
+    item.ko?.hanja,
+    item.gloss,
+  ]
+    .filter(Boolean)
+    .join('\n')
+    .toLowerCase();
+  return haystack.includes(needle);
+}
+
+function visibleHistory() {
+  return historyItems.filter(historyMatches);
+}
+
+function ensureHistoryScaffold() {
+  historyListEl.querySelectorAll('.empty-note:not(.history-sentinel)').forEach((el) => el.remove());
+  if (historySentinel()) return;
+  historyListEl.insertAdjacentHTML(
+    'beforeend',
+    '<p class="history-sentinel empty-note" hidden>Loading more…</p>'
+  );
+}
+
+function setHistoryStatus(done) {
+  const el = historySentinel();
+  if (!el) return;
+  const more = !done && visibleHistory().length < HISTORY_PAGE;
+  el.hidden = done && visibleHistory().length > 0;
+  el.textContent = done ? (visibleHistory().length ? '' : 'No matches.') : 'Loading more…';
+  if (done && visibleHistory().length) el.hidden = true;
+  if (more) el.hidden = false;
+}
+
+function paintHistory() {
+  const expanded = new Set(
+    [...historyListEl.querySelectorAll('.history-row.expanded')].map((row) => row.dataset.id)
+  );
+  ensureHistoryScaffold();
+  const sentinel = historySentinel();
+  historyListEl.querySelectorAll('.history-row').forEach((row) => row.remove());
+  const items = visibleHistory();
+  if (!items.length && historyDone) {
+    if (sentinel) {
+      sentinel.hidden = false;
+      sentinel.textContent = historyItems.length ? 'No matches.' : 'No saved translations yet.';
+    }
+    return;
+  }
+  sentinel.insertAdjacentHTML('beforebegin', items.map(historyRowHtml).join(''));
+  historyListEl.querySelectorAll('.history-row').forEach((row) => {
+    if (expanded.has(row.dataset.id)) row.classList.add('expanded');
+  });
+  setHistoryStatus(historyDone);
+}
+
+const historyObserver = new IntersectionObserver(
+  (entries) => {
+    if (entries.some((entry) => entry.isIntersecting)) loadMoreHistory();
+  },
+  { root: historyListEl, rootMargin: '120px' }
+);
+
+async function loadMoreHistory() {
+  if (!user || historyLoading || historyDone) return;
+  historyLoading = true;
+  const isFirst = historyItems.length === 0;
+  try {
+    const page = await loadHistoryPage(user.uid, {
+      pageSize: HISTORY_PAGE,
+      cursor: historyCursor,
+      sort: historySort,
+    });
+    const seen = new Set(historyItems.map((item) => item.id));
+    const fresh = page.items.filter((item) => !seen.has(item.id));
+    if (isFirst && !fresh.length) {
+      historyDone = true;
+      historyListEl.innerHTML = '<p class="empty-note">No saved translations yet.</p>';
+      return;
+    }
+    if (isFirst) historyListEl.innerHTML = '';
+    historyItems = historyItems.concat(fresh);
+    historyCursor = page.cursor;
+    historyDone = page.done || !page.items.length;
+    paintHistory();
+    historyObserver.disconnect();
+    const sentinel = historySentinel();
+    if (sentinel && !historyDone) historyObserver.observe(sentinel);
+  } catch (error) {
+    historyDone = true;
+    if (!historyItems.length) {
+      historyListEl.innerHTML = `<p class="empty-note">${escapeHtml(error.message || 'Could not load history.')}</p>`;
+    } else {
+      paintHistory();
+    }
+  } finally {
+    historyLoading = false;
+  }
+  if (!historyDone && visibleHistory().length < HISTORY_PAGE) {
+    window.setTimeout(() => loadMoreHistory(), 0);
+  }
+}
+
 async function renderHistory() {
+  historyObserver.disconnect();
+  historyItems = [];
+  historyCursor = null;
+  historyDone = false;
+  historyLoading = false;
+  if (historyToolsEl) historyToolsEl.hidden = !user;
   if (!user) {
-    historyItems = [];
     historyListEl.innerHTML = '<p class="empty-note">Sign in to keep translations.</p>';
     return;
   }
   historyListEl.innerHTML = '<p class="empty-note">Loading…</p>';
-  try {
-    historyItems = await loadHistory(user.uid);
-    if (!historyItems.length) {
-      historyListEl.innerHTML = '<p class="empty-note">No saved translations yet.</p>';
-      return;
-    }
-    historyListEl.innerHTML = historyItems
-      .map((item) => {
-        const when = historyWhen(item);
-        const zh = item.zh?.simplified || '';
-        const zhT = item.zh?.traditional || '';
-        const ko = item.ko?.text || '';
-        const ja = item.ja?.text || '';
-        const en = item.en?.text || item.gloss || '';
-        return `<div class="history-row" data-id="${escapeHtml(item.id)}">
-          <div class="history-item" role="button" tabindex="0">
-            <div class="history-top">
-              <div class="history-source">${escapeHtml(item.source || '')}</div>
-              <div class="history-time">${escapeHtml(when)}</div>
-            </div>
-            <div class="history-meta">${escapeHtml(historyPreview(item))}</div>
-            <div class="history-detail">
-              ${en ? `<p class="history-line"><span>EN</span> ${escapeHtml(en)}</p>` : ''}
-              ${zh ? `<p class="history-line"><span>简</span> ${escapeHtml(zh)}</p>` : ''}
-              ${zhT && zhT !== zh ? `<p class="history-line"><span>繁</span> ${escapeHtml(zhT)}</p>` : ''}
-              ${ko ? `<p class="history-line"><span>한</span> ${escapeHtml(ko)}</p>` : ''}
-              ${ja ? `<p class="history-line"><span>日</span> ${escapeHtml(ja)}</p>` : ''}
-              ${item.gloss ? `<p class="history-line"><span>英</span> ${escapeHtml(item.gloss)}</p>` : ''}
-              <button type="button" class="history-load">Load</button>
-            </div>
-          </div>
-          <button type="button" class="history-delete" aria-label="Delete">✕</button>
-        </div>`;
-      })
-      .join('');
-  } catch (error) {
-    historyItems = [];
-    historyListEl.innerHTML = `<p class="empty-note">${escapeHtml(error.message || 'Could not load history.')}</p>`;
-  }
+  await loadMoreHistory();
 }
 
 function renderAccount() {
@@ -564,9 +879,33 @@ function applyHistoryEntry(entry) {
     language = entry.language;
     applyLanguage();
   }
+  lastTranslated = `${language}:${entry.source.trim()}`;
   renderResults(entry);
   closeSheets();
 }
+
+historySearchEl.addEventListener('input', () => {
+  window.clearTimeout(historySearchTimer);
+  historySearchTimer = window.setTimeout(() => {
+    historySearch = historySearchEl.value;
+    paintHistory();
+    if (!historyDone && visibleHistory().length < HISTORY_PAGE) loadMoreHistory();
+  }, 200);
+});
+historySearchEl.addEventListener('keydown', (event) => {
+  if (event.key !== 'Enter') return;
+  event.preventDefault();
+  historySearchEl.blur();
+});
+historyLangEl.addEventListener('change', () => {
+  historyLang = historyLangEl.value;
+  paintHistory();
+  if (!historyDone && visibleHistory().length < HISTORY_PAGE) loadMoreHistory();
+});
+historySortEl.addEventListener('change', () => {
+  historySort = historySortEl.value;
+  renderHistory();
+});
 
 historyListEl.addEventListener('click', async (event) => {
   const row = event.target.closest('.history-row');
@@ -576,7 +915,13 @@ historyListEl.addEventListener('click', async (event) => {
     const label = entry?.source ? `“${entry.source}”` : 'this translation';
     if (!window.confirm(`Delete ${label} from history?`)) return;
     await deleteHistory(user.uid, row.dataset.id);
-    await renderHistory();
+    historyItems = historyItems.filter((item) => item.id !== row.dataset.id);
+    if (!historyItems.length && historyDone) {
+      historyListEl.innerHTML = '<p class="empty-note">No saved translations yet.</p>';
+    } else {
+      paintHistory();
+      if (!historyDone && visibleHistory().length < HISTORY_PAGE) await loadMoreHistory();
+    }
     return;
   }
   const entry = historyItems.find((item) => item.id === row.dataset.id);

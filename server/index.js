@@ -66,7 +66,9 @@ app.listen(port, '0.0.0.0', () => {
   if (process.env.FIREBASE_PROJECT_ID) {
     console.log(`Firebase project:      ${process.env.FIREBASE_PROJECT_ID}`);
   }
-  if (!process.env.XAI_API_KEY) {
-    console.log('No XAI_API_KEY set — translations will use the basic fallback.');
+  if (process.env.OLLAMA_API_KEY) {
+    console.log(`Ollama model:          ${process.env.OLLAMA_MODEL || 'gemma4:31b'}`);
+  } else {
+    console.log('No OLLAMA_API_KEY set — translations will use Google fallback.');
   }
 });

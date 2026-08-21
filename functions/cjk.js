@@ -121,6 +121,25 @@ function normalized(text) {
   return String(text || '').replace(/\s+/g, '').toLowerCase();
 }
 
+function foldLatin(s) {
+  return String(s || '')
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase()
+    .replace(/[^a-z]/g, '');
+}
+
+function isRomanizationOf(en, pinyin) {
+  const a = foldLatin(en);
+  const b = foldLatin(pinyin);
+  return a.length >= 3 && a === b;
+}
+
+function allHan(text) {
+  const chars = [...String(text || '')].filter((c) => c.trim());
+  return chars.length > 0 && chars.every((c) => /\p{Script=Han}/u.test(c));
+}
+
 function looksUntranslated(source, translated, sourceLang, targetFamily) {
   if (!translated) return true;
   const family = sourceLang === 'zh_CN' || sourceLang === 'zh_TW' ? 'zh' : sourceLang;
@@ -184,7 +203,7 @@ async function translateWithSl(text, sl, sourceLang) {
     if (hans.text) simplified = hans.text;
     if (hant.text) traditional = hant.text;
   }
-  return {
+  const result = {
     zh: {
       simplified,
       traditional,
@@ -208,6 +227,53 @@ async function translateWithSl(text, sl, sourceLang) {
     provider: sl === 'auto' ? 'gtx-auto' : 'gtx',
     sourceLang,
   };
+
+  return polishTranslations(result, text, family);
+}
+
+async function polishTranslations(result, text, family) {
+  let { zh, ja, ko, en, gloss } = result;
+
+  if (family === 'zh' && isRomanizationOf(en.text || gloss, zh.pinyin)) {
+    const meanings = [];
+    for (const ch of [...text]) {
+      if (!/\p{Script=Han}/u.test(ch)) continue;
+      const meaning = await gtx(ch, 'zh-CN', 'en');
+      if (
+        meaning.text &&
+        !isRomanizationOf(meaning.text, meaning.romanization || '') &&
+        meanings.at(-1) !== meaning.text
+      ) {
+        meanings.push(meaning.text);
+      }
+    }
+    if (meanings.length) {
+      const english = meanings.join(' ');
+      en = { text: english };
+      gloss = english;
+    }
+    if (allHan(text)) {
+      ja = { ...ja, text };
+    }
+    if (en.text) {
+      const koFromEn = await gtx(en.text, 'en', 'ko');
+      if (koFromEn.text) ko = { ...ko, text: koFromEn.text, explanation: en.text };
+    }
+  }
+
+  if (
+    family === 'ko' &&
+    [...text].length <= 4 &&
+    [...(ja.text || '')].length <= 1 &&
+    (en.text || gloss)
+  ) {
+    const pivoted = await gtx(en.text || gloss, 'en', 'ja');
+    if (pivoted.text && pivoted.text !== ja.text) {
+      ja = { ...ja, text: pivoted.text };
+    }
+  }
+
+  return { ...result, zh, ja, ko, en, gloss };
 }
 
 export async function translateDirect({ text, language }) {
