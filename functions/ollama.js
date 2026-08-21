@@ -1,4 +1,4 @@
-const DEFAULT_MODELS = ['gemma4:31b', 'gpt-oss:20b'];
+const DEFAULT_MODELS = ['gpt-oss:120b', 'gemma4:31b', 'gpt-oss:20b'];
 const OLLAMA_CHAT = 'https://ollama.com/api/chat';
 
 const LANG_NAMES = {
@@ -38,20 +38,19 @@ const FORMAT_SCHEMA = {
   },
 };
 
-const SYSTEM_PROMPT = `You are a precise translator for English, Chinese, Japanese, and Korean.
-Reply with JSON only using these keys:
+const SYSTEM_PROMPT = `You are a professional translator for English, Chinese, Japanese, and Korean.
+Return JSON only with keys:
 {"en":"","zh_simplified":"","zh_traditional":"","zh_pinyin":"","ja":"","ja_kana":"","ja_romaji":"","ko":"","ko_romanization":"","ko_hanja":""}
 
-Rules:
-- Translate natural meaning, never character-by-character and never as pinyin/romanization in the English field.
-- Keep the source language as the natural original text.
-- Simplified and Traditional Chinese must use the correct script (国/國, 开放/開放, 可持续/永續 is fine).
-- Japanese must use the correct established kanji (치외법권 → 治外法権 not 歯外法権; 하위 → 下位/下 not 子).
-- Korean 불평등 is social inequality 不平等, not the math term 不等式.
-- 一期一会 Korean is 일기일회 (or 일생에 한 번), not a digit gloss like 1기 1회.
-- ja_kana is full hiragana; ja_romaji is Hepburn; zh_pinyin is Hanyu Pinyin with tone marks; ko_romanization is Revised Romanization.
-- ko_hanja is hanja if a standard form exists, else empty.
-- Do not treat ordinary words as personal names unless they are clearly names.`;
+Translate the user's exact writing.
+- Honor spelling, not pronunciation. Same reading + different characters = different words.
+- Kanji/hanzi in the source are binding, including when mixed with kana (okurigana). Translate that written word, not a kana-only homophone.
+- Keep the source language as the original text.
+- Use natural established equivalents, not a character-by-character calque, unless the source is a name.
+- English is a meaning, never pinyin or romanization.
+- Use correct Simplified vs Traditional Chinese.
+- ja_kana = hiragana; ja_romaji = Hepburn; zh_pinyin = Hanyu Pinyin with tones; ko_romanization = Revised Romanization.
+- ko_hanja only if a standard hanja form exists.`;
 
 function ollamaKey() {
   return String(process.env.OLLAMA_API_KEY || '').trim();
@@ -131,7 +130,7 @@ function looksComplete(result) {
   );
 }
 
-async function chatOnce(model, text, sourceLang) {
+async function chatOnce(model, messages) {
   const response = await fetch(OLLAMA_CHAT, {
     method: 'POST',
     headers: {
@@ -142,13 +141,8 @@ async function chatOnce(model, text, sourceLang) {
       model,
       stream: false,
       format: FORMAT_SCHEMA,
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        {
-          role: 'user',
-          content: `Source language: ${LANG_NAMES[sourceLang] || sourceLang}\nText: ${text}`,
-        },
-      ],
+      options: { temperature: 0 },
+      messages,
     }),
     signal: AbortSignal.timeout(22000),
   });
@@ -164,7 +158,15 @@ async function chatOnce(model, text, sourceLang) {
   const data = JSON.parse(raw);
   const content = data?.message?.content;
   if (!content) throw new Error('Empty Ollama response.');
-  return normalize(extractJson(content), text, sourceLang);
+  return extractJson(content);
+}
+
+function userTranslatePrompt(text, sourceLang) {
+  return [
+    `Source language: ${LANG_NAMES[sourceLang] || sourceLang}`,
+    `Text: ${text}`,
+    'Translate this exact writing into all target fields.',
+  ].join('\n');
 }
 
 export async function translateWithOllama({ text, sourceLang }) {
@@ -175,7 +177,11 @@ export async function translateWithOllama({ text, sourceLang }) {
   let lastError = 'Ollama translation failed.';
   for (const model of modelList()) {
     try {
-      const result = await chatOnce(model, source, sourceLang);
+      const parsed = await chatOnce(model, [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: userTranslatePrompt(source, sourceLang) },
+      ]);
+      const result = normalize(parsed, source, sourceLang);
       if (looksComplete(result)) {
         result.provider = `ollama:${model}`;
         return result;
