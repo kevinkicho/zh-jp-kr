@@ -30,6 +30,15 @@ All application code in this repository was written by **Grok 4.6** (xAI).
 - History rows expand to the same detail as the cards (pronunciation included)
 - PWA — add it to the home screen
 
+## Notes
+
+Dictionary is unchanged. Switch to **Notes** for a multi-line document that you can reopen later.
+
+- Sign in, tap **New**, then type or draw the same way as Dictionary. Suggestion cards still appear.
+- A line is translated on **Done / Enter**, **Add**, picking a handwriting suggestion, or leaving the line — not on every keystroke.
+- Each line keeps 英 / 简 / 繁 / 日 / 한 under it (or use the language toggle). The Dictionary card grid is not used here.
+- Notes live in Firestore at `users/{uid}/notes/{noteId}` and stay private to that account.
+
 ## Run locally
 
 ```bash

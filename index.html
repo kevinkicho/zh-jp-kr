@@ -56,6 +56,11 @@
         </div>
       </header>
 
+      <div class="mode-switch" role="tablist" aria-label="App mode">
+        <button type="button" data-mode="dictionary" aria-selected="true">Dictionary</button>
+        <button type="button" data-mode="notes" aria-selected="false">Notes</button>
+      </div>
+
       <form class="composer" id="phrase-form" action="#" method="post" autocomplete="off" novalidate>
         <button type="button" class="icon-btn" id="backspace" aria-label="Delete last character">
           ⌫
@@ -123,6 +128,41 @@
           <p class="reading" hidden></p>
           <p class="explain" hidden></p>
         </article>
+      </section>
+
+      <section class="notes-pane" id="notes-pane" hidden>
+        <div id="notes-list-view">
+          <div class="notes-list-head">
+            <h2>Notes</h2>
+            <button type="button" id="note-new" class="note-new">New</button>
+          </div>
+          <div class="notes-list" id="notes-list">
+            <p class="empty-note">Sign in to write notes.</p>
+          </div>
+        </div>
+        <div id="note-editor-view" hidden data-view-lang="all">
+          <div class="note-editor-head">
+            <button type="button" class="icon-btn" id="note-back" aria-label="Back to notes">←</button>
+            <input
+              id="note-title"
+              type="text"
+              maxlength="80"
+              placeholder="Untitled"
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <button type="button" class="icon-btn" id="note-delete" aria-label="Delete note">✕</button>
+          </div>
+          <div class="note-view-langs" id="note-view-langs" role="tablist" aria-label="Translation language">
+            <button type="button" data-view-lang="all" aria-selected="true">All</button>
+            <button type="button" data-view-lang="en">EN</button>
+            <button type="button" data-view-lang="zh_CN">简</button>
+            <button type="button" data-view-lang="zh_TW">繁</button>
+            <button type="button" data-view-lang="ja">日</button>
+            <button type="button" data-view-lang="ko">한</button>
+          </div>
+          <div class="note-editor notranslate" id="note-editor" translate="no"></div>
+        </div>
       </section>
 
       <div class="sheet-backdrop" id="sheet-backdrop" hidden></div>

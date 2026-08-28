@@ -1058,3 +1058,333 @@ body {
     height: 48%;
   }
 }
+
+
+.mode-switch {
+  display: flex;
+  flex: 0 0 auto;
+  background: rgba(30, 27, 24, 0.9);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px;
+  gap: 2px;
+}
+
+.mode-switch button {
+  appearance: none;
+  flex: 1 1 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.mode-switch button[aria-selected='true'] {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.notes-pane {
+  display: none;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+#app.mode-notes .notes-pane {
+  display: flex;
+  flex: 1 1 0;
+}
+
+#app.mode-notes:not(.note-open) .composer,
+#app.mode-notes:not(.note-open) .workspace,
+#app.mode-notes:not(.note-open) .results,
+#app.mode-notes .layouts {
+  display: none;
+}
+
+#app.mode-notes.note-open .results {
+  display: none;
+}
+
+#app.mode-notes.note-open .workspace {
+  flex: 0 0 32%;
+}
+
+#app.mode-notes.note-open .notes-pane {
+  flex: 1 1 42%;
+}
+
+#notes-list-view,
+#note-editor-view {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+#notes-list-view[hidden],
+#note-editor-view[hidden] {
+  display: none !important;
+}
+
+.notes-list-head,
+.note-editor-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.notes-list-head h2 {
+  margin: 0;
+  flex: 1 1 auto;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.note-new {
+  appearance: none;
+  height: 32px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--vermilion);
+  color: #fff8f2;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.notes-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 0 4px;
+}
+
+.notes-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+  margin: 0 0 8px;
+}
+
+.notes-item {
+  appearance: none;
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  padding: 12px 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--paper-2);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.notes-title {
+  font-size: 16px;
+  line-height: 1.35;
+  font-family: "Noto Serif SC", "Noto Serif JP", "Noto Serif KR", serif;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow-wrap: anywhere;
+}
+
+.notes-meta {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.notes-delete {
+  appearance: none;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  align-self: flex-start;
+  margin-top: 10px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(243, 235, 225, 0.12);
+  color: var(--muted);
+  font-size: 12px;
+  opacity: 0.45;
+}
+
+.note-editor-head input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 17px;
+  font-family: "Noto Serif SC", "Noto Serif JP", "Noto Serif KR", serif;
+  outline: none;
+  padding: 6px 4px;
+}
+
+.note-view-langs {
+  display: flex;
+  flex-shrink: 0;
+  gap: 4px;
+  overflow-x: auto;
+  padding: 4px 0 8px;
+  scrollbar-width: none;
+}
+
+.note-view-langs::-webkit-scrollbar {
+  display: none;
+}
+
+.note-view-langs button {
+  appearance: none;
+  flex: 0 0 auto;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--paper-2);
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.note-view-langs button[aria-selected='true'] {
+  background: var(--ink);
+  color: var(--paper);
+  border-color: transparent;
+}
+
+.note-editor {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 0 8px;
+}
+
+.note-editor .codex-editor {
+  color: var(--ink);
+}
+
+.note-editor .ce-block__content,
+.note-editor .ce-toolbar__content {
+  max-width: 100%;
+  margin: 0;
+}
+
+.note-editor .ce-toolbar__plus,
+.note-editor .ce-toolbar__settings-btn {
+  color: var(--muted);
+  background: var(--paper-2);
+  border: 1px solid var(--line);
+}
+
+.note-editor .ce-popover,
+.note-editor .ce-popover--opened,
+.note-editor .ce-popover-item {
+  background: var(--paper-2);
+  color: var(--ink);
+  border-color: var(--line);
+}
+
+.note-editor .ce-header,
+.note-editor .cdx-list,
+.note-editor .ce-paragraph {
+  color: var(--ink);
+}
+
+.note-editor .ce-block {
+  margin: 0 0 8px;
+}
+
+.note-block {
+  background: var(--paper-2);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 10px 10px 8px;
+}
+
+.note-block.is-selected,
+.note-block:focus-within {
+  border-color: #7a3a30;
+  box-shadow: inset 3px 0 0 var(--vermilion);
+}
+
+.note-source {
+  min-height: 1.4em;
+  outline: none;
+  color: var(--ink);
+  font-size: 18px;
+  line-height: 1.4;
+  font-family: "Noto Serif SC", "Noto Serif JP", "Noto Serif KR", "Noto Serif TC", serif;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.note-xlate {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.note-tr {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+}
+
+.note-tr-label {
+  flex: 0 0 1.6em;
+  padding-top: 2px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.note-tr-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.35;
+  font-family: "Noto Serif SC", "Noto Serif JP", "Noto Serif KR", "Noto Serif TC", serif;
+  overflow-wrap: anywhere;
+}
+
+.note-tr-text::before {
+  content: attr(data-display);
+  white-space: pre-wrap;
+}
+
+.note-block-status {
+  margin: 0 0 2px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+#note-editor-view[data-view-lang='en'] .note-tr:not([data-key='en']),
+#note-editor-view[data-view-lang='zh_CN'] .note-tr:not([data-key='zh_CN']),
+#note-editor-view[data-view-lang='zh_TW'] .note-tr:not([data-key='zh_TW']),
+#note-editor-view[data-view-lang='ja'] .note-tr:not([data-key='ja']),
+#note-editor-view[data-view-lang='ko'] .note-tr:not([data-key='ko']) {
+  display: none;
+}
+
+@media (max-height: 620px) {
+  #app.mode-notes.note-open .workspace {
+    flex-basis: 28%;
+  }
+}

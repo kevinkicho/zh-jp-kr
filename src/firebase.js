@@ -47,6 +47,10 @@ export function firebaseEnabled() {
   return enabled;
 }
 
+export function getFirestoreDb() {
+  return db;
+}
+
 export function currentUser() {
   return auth?.currentUser || null;
 }

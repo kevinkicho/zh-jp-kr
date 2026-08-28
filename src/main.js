@@ -12,6 +12,7 @@ import {
   watchAuth,
   watchPrefs,
 } from './firebase.js';
+import { createNotesController } from './notes-ui.js';
 
 const appEl = document.getElementById('app');
 const pad = new InkPad(document.getElementById('ink'));
@@ -64,6 +65,8 @@ let historySearchTimer = 0;
 const HISTORY_PAGE = 20;
 let saveHistoryEnabled = localStorage.getItem('sanpitsu-save-history') !== '0';
 let speakAfterTranslate = localStorage.getItem('sanpitsu-speak') === '1';
+let appMode = localStorage.getItem('sanpitsu-mode') === 'notes' ? 'notes' : 'dictionary';
+let notes = null;
 
 function currentLang() {
   return langById(language);
@@ -313,6 +316,7 @@ candidatesEl.addEventListener('click', (event) => {
   const button = event.target.closest('.candidate');
   if (!button) return;
   appendText(candidates[Number(button.dataset.index)]);
+  if (appMode === 'notes' && notes?.isEditing()) notes.commitFromComposer({ fromCandidate: true });
 });
 
 let cardPressTimer = 0;
@@ -476,6 +480,10 @@ document.getElementById('accept').addEventListener('click', () => {
     runRecognize();
     return;
   }
+  if (appMode === 'notes') {
+    if (phraseEl.value.trim()) notes?.commitFromComposer();
+    return;
+  }
   if (phraseEl.value.trim()) runTranslate();
 });
 
@@ -517,6 +525,10 @@ function hideKeyboard() {
 function submitPhrase(event) {
   event?.preventDefault();
   hideKeyboard();
+  if (appMode === 'notes') {
+    notes?.commitFromComposer();
+    return;
+  }
   runTranslate();
 }
 
@@ -541,18 +553,70 @@ phraseEl.addEventListener('keyup', (event) => {
 });
 phraseEl.addEventListener('search', submitPhrase);
 document.getElementById('phrase-form').addEventListener('submit', submitPhrase);
+
+let pointerInComposerChrome = false;
 appEl.addEventListener(
   'pointerdown',
   (event) => {
+    pointerInComposerChrome = Boolean(
+      event.target.closest('#phrase-form, .workspace, .mode-switch, .note-editor-head, .note-view-langs')
+    );
     if (document.activeElement !== phraseEl) return;
     if (event.target.closest('#phrase-form')) return;
     hideKeyboard();
   },
   true
 );
+phraseEl.addEventListener('blur', () => {
+  if (appMode !== 'notes' || !notes?.isEditing()) return;
+  window.setTimeout(() => {
+    if (pointerInComposerChrome) return;
+    if (document.activeElement === phraseEl) return;
+    if (document.activeElement?.closest?.('#phrase-form, .workspace')) return;
+    notes.commitFromComposer();
+  }, 80);
+});
 
 pad.on('change', updateHint);
 pad.on('strokeEnd', queueRecognize);
+
+function applyAppMode() {
+  const notesOn = appMode === 'notes';
+  appEl.classList.toggle('mode-notes', notesOn);
+  appEl.classList.toggle('mode-dictionary', !notesOn);
+  const pane = document.getElementById('notes-pane');
+  if (pane) pane.hidden = !notesOn;
+  document.querySelectorAll('.mode-switch [data-mode]').forEach((button) => {
+    button.setAttribute('aria-selected', String(button.dataset.mode === appMode));
+  });
+  localStorage.setItem('sanpitsu-mode', appMode);
+  if (notesOn) notes?.enter();
+  else notes?.leave();
+  window.setTimeout(() => pad.resize(), 40);
+}
+
+notes = createNotesController({
+  appEl,
+  getUser: () => user,
+  getLanguage: () => language,
+  getPhrase: () => phraseEl.value,
+  setPhrase: (value) => {
+    phraseEl.value = value;
+  },
+  setStatus,
+  hideKeyboard,
+  onOpenChange() {
+    appEl.classList.toggle('note-open', Boolean(notes?.hasOpenNote()));
+    window.setTimeout(() => pad.resize(), 40);
+  },
+});
+
+document.querySelector('.mode-switch')?.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-mode]');
+  if (!button || button.dataset.mode === appMode) return;
+  appMode = button.dataset.mode === 'notes' ? 'notes' : 'dictionary';
+  applyAppMode();
+});
 
 function persistHistory(text, data) {
   if (!user || !saveHistoryEnabled || !text || !data) return;
@@ -874,6 +938,10 @@ document.getElementById('sign-out').addEventListener('click', async () => {
 
 function applyHistoryEntry(entry) {
   if (!entry?.source) return;
+  if (appMode === 'notes') {
+    appMode = 'dictionary';
+    applyAppMode();
+  }
   phraseEl.value = entry.source;
   if (entry.language && langById(entry.language).id === entry.language) {
     language = entry.language;
@@ -951,6 +1019,7 @@ settingSpeakEl.addEventListener('change', () => {
 watchAuth((next) => {
   user = next;
   renderAccount();
+  notes?.onAuth(next);
   if (!user) {
     watchPrefs(null);
     closeSheets();
@@ -982,6 +1051,7 @@ watchAuth((next) => {
 
 applyLanguage();
 applyLayout();
+applyAppMode();
 updateHint();
 renderResults(null);
 
