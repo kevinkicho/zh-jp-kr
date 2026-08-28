@@ -9,11 +9,13 @@ import {
   getNote,
   listNotes,
   newBlockId,
+  nextFrontSortOrder,
   notePreview,
   noteWhen,
   saveNote,
   stripTags,
   translationsFromApi,
+  updateNoteOrder,
 } from './notes.js';
 
 const LABELS = Object.fromEntries(NOTE_ROWS.map((row) => [row.key, row.label]));
@@ -70,6 +72,198 @@ function escapeHtml(value) {
     .replaceAll('"', '&quot;');
 }
 
+const DRAG_THRESHOLD = 6;
+
+function makeDragHandle(className, label) {
+  const handle = document.createElement('button');
+  handle.type = 'button';
+  handle.className = `${className} note-grip`.trim();
+  handle.setAttribute('aria-label', label);
+  handle.title = 'Drag to reorder';
+  handle.draggable = false;
+  handle.textContent = '';
+  for (let i = 0; i < 6; i += 1) {
+    handle.append(document.createElement('span'));
+  }
+  handle.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  });
+  handle.addEventListener('contextmenu', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  });
+  return handle;
+}
+
+function resolveEl(value) {
+  return typeof value === 'function' ? value() : value;
+}
+
+function bindReorderHandle(handle, { item, container, itemSelector, onCommit, onDragEnd, onTap }) {
+  handle.addEventListener('pointerdown', (event) => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+
+    const pointerId = event.pointerId;
+    const startX = event.clientX;
+    const startY = event.clientY;
+    let active = true;
+    let dragging = false;
+    let placeholder = null;
+    let startIndex = -1;
+    let grabOffsetY = 0;
+
+    const release = () => {
+      try {
+        handle.releasePointerCapture(pointerId);
+      } catch {
+        // already released
+      }
+    };
+
+    const clearInline = () => {
+      item.classList.remove('is-dragging');
+      item.style.position = '';
+      item.style.left = '';
+      item.style.top = '';
+      item.style.width = '';
+      item.style.height = '';
+      item.style.zIndex = '';
+      item.style.pointerEvents = '';
+      item.style.margin = '';
+      item.style.transform = '';
+    };
+
+    const teardown = (commit) => {
+      if (!active) return;
+      active = false;
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onCancel);
+      document.body.classList.remove('is-reordering');
+      release();
+
+      let toIndex = startIndex;
+      const root = resolveEl(container);
+      if (placeholder?.parentElement && root) {
+        const kids = [...root.children].filter(
+          (el) => el === placeholder || (el.matches?.(itemSelector) && el !== item)
+        );
+        toIndex = kids.indexOf(placeholder);
+        placeholder.remove();
+      }
+      placeholder = null;
+      clearInline();
+      if (dragging) onDragEnd?.();
+      if (commit && dragging && toIndex >= 0 && toIndex !== startIndex) {
+        onCommit(startIndex, toIndex);
+      } else if (commit && !dragging) {
+        onTap?.();
+      }
+    };
+
+    const moveGhost = (clientY) => {
+      item.style.top = `${clientY - grabOffsetY}px`;
+    };
+
+    const placePlaceholder = (clientY) => {
+      if (!placeholder) return;
+      const root = resolveEl(container);
+      if (!root) return;
+      const others = [...root.querySelectorAll(itemSelector)].filter((el) => el !== item);
+      let before = null;
+      for (const el of others) {
+        const rect = el.getBoundingClientRect();
+        if (clientY < rect.top + rect.height / 2) {
+          before = el;
+          break;
+        }
+      }
+      if (before) {
+        if (placeholder.nextElementSibling !== before) before.before(placeholder);
+      } else if (others.length) {
+        const last = others[others.length - 1];
+        if (last.nextElementSibling !== placeholder) last.after(placeholder);
+      }
+    };
+
+    const scrollNearEdge = (clientY) => {
+      const root = resolveEl(container);
+      if (!root) return;
+      const scroller = root.closest?.('.note-editor, .notes-list') || root;
+      if (!scroller) return;
+      const rect = scroller.getBoundingClientRect();
+      const edge = 56;
+      if (clientY < rect.top + edge) scroller.scrollTop -= 16;
+      else if (clientY > rect.bottom - edge) scroller.scrollTop += 16;
+    };
+
+    const startDrag = (e) => {
+      dragging = true;
+      document.body.classList.add('is-reordering');
+      const originRect = item.getBoundingClientRect();
+      grabOffsetY = startY - originRect.top;
+      const root = resolveEl(container);
+      if (!root) return;
+      const list = [...root.querySelectorAll(itemSelector)];
+      startIndex = list.indexOf(item);
+      placeholder = document.createElement('div');
+      placeholder.className = item.classList.contains('note-card')
+        ? 'note-reorder-placeholder note-card-placeholder'
+        : 'note-reorder-placeholder notes-row-placeholder';
+      placeholder.style.height = `${originRect.height}px`;
+      placeholder.setAttribute('aria-hidden', 'true');
+      item.after(placeholder);
+      item.classList.add('is-dragging');
+      item.style.position = 'fixed';
+      item.style.left = `${originRect.left}px`;
+      item.style.top = `${originRect.top}px`;
+      item.style.width = `${originRect.width}px`;
+      item.style.height = `${originRect.height}px`;
+      item.style.zIndex = '40';
+      item.style.pointerEvents = 'none';
+      item.style.margin = '0';
+      moveGhost(e.clientY);
+      placePlaceholder(e.clientY);
+    };
+
+    const onMove = (e) => {
+      if (!active || e.pointerId !== pointerId) return;
+      if (!dragging) {
+        if (Math.abs(e.clientX - startX) < DRAG_THRESHOLD && Math.abs(e.clientY - startY) < DRAG_THRESHOLD) {
+          return;
+        }
+        startDrag(e);
+      }
+      e.preventDefault();
+      moveGhost(e.clientY);
+      placePlaceholder(e.clientY);
+      scrollNearEdge(e.clientY);
+    };
+
+    const onUp = (e) => {
+      if (e.pointerId !== pointerId) return;
+      teardown(true);
+    };
+
+    const onCancel = (e) => {
+      if (e.pointerId !== pointerId) return;
+      teardown(false);
+    };
+
+    window.addEventListener('pointermove', onMove, { passive: false });
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onCancel);
+    try {
+      handle.setPointerCapture(pointerId);
+    } catch {
+      // capture is best-effort
+    }
+  });
+}
+
 function setDisplay(el, value) {
   if (!el) return;
   el.textContent = '';
@@ -98,6 +292,8 @@ export function createNotesController({
 
   let currentNote = null;
   let cards = [];
+  let notesCache = [];
+  let suppressListClickUntil = 0;
   let sourceEl = null;
   let cardsEl = null;
   let viewKeys = new Set(['all']);
@@ -174,17 +370,9 @@ export function createNotesController({
     wrap.setAttribute('aria-label', 'Translation card');
     if (editingId === block.id) wrap.classList.add('is-editing');
     if (selectedIds.has(block.id)) wrap.classList.add('is-selected');
-    const pick = document.createElement('button');
-    pick.type = 'button';
-    pick.className = 'note-card-select';
-    pick.setAttribute('aria-label', 'Select this card');
+    const pick = makeDragHandle('note-card-select', 'Select or reorder this card');
     pick.setAttribute('aria-pressed', String(selectedIds.has(block.id)));
-    pick.textContent = selectedIds.has(block.id) ? '●' : '○';
-    pick.addEventListener('pointerdown', (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      toggleSelect(block.id);
-    });
+    pick.title = 'Tap to select, drag to reorder';
     const source = document.createElement('p');
     source.className = 'note-card-source';
     source.lang = langById(block.lang).htmlLang;
@@ -259,6 +447,13 @@ export function createNotesController({
       event.preventDefault();
       event.stopPropagation();
       removeCard(block.id);
+    });
+    bindReorderHandle(pick, {
+      item: wrap,
+      container: () => cardsEl,
+      itemSelector: '.note-card',
+      onCommit: reorderCards,
+      onTap: () => toggleSelect(block.id),
     });
     wrap.append(pick, edit, del, source, xlate);
     return wrap;
@@ -353,6 +548,20 @@ export function createNotesController({
     }
   }
 
+  function reorderCards(from, to) {
+    if (from === to || from < 0 || to < 0 || from >= cards.length || to > cards.length) return;
+    const next = cards.slice();
+    const [moved] = next.splice(from, 1);
+    if (!moved) return;
+    next.splice(to, 0, moved);
+    cards = next;
+    renderCards();
+    applyViewLang();
+    persistNote().catch((error) => {
+      setStatus(error.message || 'Could not save card order.');
+    });
+  }
+
   function queueSave() {
     window.clearTimeout(saveTimer);
     saveTimer = window.setTimeout(() => {
@@ -376,13 +585,26 @@ export function createNotesController({
     if (!uid) return;
     if (seq !== persistSeq) return;
     if (currentNote.local || String(currentNote.id || '').startsWith('local-')) {
+      const oldId = currentNote.id;
+      const sortOrder =
+        typeof currentNote.sortOrder === 'number' && Number.isFinite(currentNote.sortOrder)
+          ? currentNote.sortOrder
+          : nextFrontSortOrder(notesCache);
       const id = await createNote(uid, {
         title: currentNote.title,
         sourceLang: currentNote.sourceLang,
         blocks: currentNote.blocks,
+        sortOrder,
       });
       currentNote.id = id;
       currentNote.local = false;
+      currentNote.sortOrder = sortOrder;
+      const cached = notesCache.findIndex((note) => note.id === oldId);
+      if (cached >= 0) {
+        notesCache[cached] = { ...notesCache[cached], id, local: false, sortOrder };
+      } else {
+        notesCache = [{ ...currentNote }, ...notesCache];
+      }
       return;
     }
     await saveNote(uid, currentNote.id, {
@@ -588,6 +810,71 @@ export function createNotesController({
     if (editorHolder) editorHolder.replaceChildren();
   }
 
+  function paintNotesList(notes) {
+    if (!listEl) return;
+    if (!notes.length) {
+      listEl.innerHTML = '<p class="empty-note">No notes yet. Tap New.</p>';
+      return;
+    }
+    listEl.replaceChildren();
+    for (const note of notes) {
+      const row = document.createElement('div');
+      row.className = 'notes-row';
+      row.dataset.id = note.id;
+      const handle = makeDragHandle('notes-handle', 'Reorder this note');
+      bindReorderHandle(handle, {
+        item: row,
+        container: listEl,
+        itemSelector: '.notes-row',
+        onCommit: reorderNotes,
+        onDragEnd: () => {
+          suppressListClickUntil = Date.now() + 400;
+        },
+      });
+      const open = document.createElement('button');
+      open.type = 'button';
+      open.className = 'notes-item';
+      const title = document.createElement('div');
+      title.className = 'notes-title';
+      title.textContent = notePreview(note);
+      const meta = document.createElement('div');
+      meta.className = 'notes-meta';
+      const count = (note.blocks || []).filter((block) => stripTags(block.source || '').trim()).length;
+      meta.textContent = [noteWhen(note), count ? `${count} card${count === 1 ? '' : 's'}` : '']
+        .filter(Boolean)
+        .join('  ·  ');
+      open.append(title, meta);
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'notes-delete';
+      del.setAttribute('aria-label', 'Delete note');
+      del.textContent = '✕';
+      row.append(handle, open, del);
+      listEl.append(row);
+    }
+  }
+
+  function reorderNotes(from, to) {
+    if (from === to || from < 0 || to < 0 || from >= notesCache.length || to > notesCache.length) return;
+    const next = notesCache.slice();
+    const [moved] = next.splice(from, 1);
+    if (!moved) return;
+    next.splice(to, 0, moved);
+    next.forEach((note, index) => {
+      note.sortOrder = index;
+    });
+    notesCache = next;
+    paintNotesList(notesCache);
+    const uid = userId();
+    if (!uid) return;
+    updateNoteOrder(
+      uid,
+      notesCache.map((note) => note.id)
+    ).catch((error) => {
+      setStatus(error.message || 'Could not save note order.');
+    });
+  }
+
   async function renderList() {
     if (!listEl) return;
     const uid = userId();
@@ -596,42 +883,21 @@ export function createNotesController({
       return;
     }
     if (!uid) {
+      const localOnly = notesCache.filter(
+        (note) => note.local || String(note.id || '').startsWith('local-')
+      );
+      if (localOnly.length) {
+        notesCache = localOnly;
+        paintNotesList(notesCache);
+        return;
+      }
       listEl.innerHTML = '<p class="empty-note">Sign in to write notes.</p>';
       return;
     }
     listEl.innerHTML = '<p class="empty-note">Loading…</p>';
     try {
-      const notes = await listNotes(uid);
-      if (!notes.length) {
-        listEl.innerHTML = '<p class="empty-note">No notes yet. Tap New.</p>';
-        return;
-      }
-      listEl.replaceChildren();
-      for (const note of notes) {
-        const row = document.createElement('div');
-        row.className = 'notes-row';
-        row.dataset.id = note.id;
-        const open = document.createElement('button');
-        open.type = 'button';
-        open.className = 'notes-item';
-        const title = document.createElement('div');
-        title.className = 'notes-title';
-        title.textContent = notePreview(note);
-        const meta = document.createElement('div');
-        meta.className = 'notes-meta';
-        const count = (note.blocks || []).filter((block) => stripTags(block.source || '').trim()).length;
-        meta.textContent = [noteWhen(note), count ? `${count} card${count === 1 ? '' : 's'}` : '']
-          .filter(Boolean)
-          .join('  ·  ');
-        open.append(title, meta);
-        const del = document.createElement('button');
-        del.type = 'button';
-        del.className = 'notes-delete';
-        del.setAttribute('aria-label', 'Delete note');
-        del.textContent = '✕';
-        row.append(open, del);
-        listEl.append(row);
-      }
+      notesCache = await listNotes(uid);
+      paintNotesList(notesCache);
     } catch (error) {
       listEl.innerHTML = `<p class="empty-note">${escapeHtml(error.message || 'Could not load notes.')}</p>`;
     }
@@ -670,6 +936,16 @@ export function createNotesController({
   }
 
   async function openNote(id) {
+    if (String(id || '').startsWith('local-')) {
+      const local = notesCache.find((note) => note.id === id) || currentNote;
+      if (!local) {
+        setStatus('Note not found.');
+        showList();
+        return;
+      }
+      await showEditor(local);
+      return;
+    }
     const uid = userId();
     if (!uid) {
       setStatus('Sign in with G to save notes to Firestore.');
@@ -686,10 +962,20 @@ export function createNotesController({
 
   async function createAndOpen() {
     const uid = userId();
+    const sortOrder = nextFrontSortOrder(notesCache);
     if (uid) {
       setStatus('Creating…');
       try {
-        const id = await createNote(uid, { title: '', sourceLang: getLanguage(), blocks: [] });
+        const id = await createNote(uid, {
+          title: '',
+          sourceLang: getLanguage(),
+          blocks: [],
+          sortOrder,
+        });
+        notesCache = [
+          { id, title: '', sourceLang: getLanguage(), blocks: [], sortOrder },
+          ...notesCache.filter((note) => note.id !== id),
+        ];
         setStatus('');
         await openNote(id);
         return;
@@ -699,21 +985,28 @@ export function createNotesController({
     } else {
       setStatus('Working locally. Sign in with G to save.');
     }
-    await showEditor({
+    const local = {
       id: `local-${Date.now().toString(36)}`,
       title: '',
       sourceLang: getLanguage(),
       blocks: [],
       local: true,
-    });
+      sortOrder,
+    };
+    notesCache = [local, ...notesCache.filter((note) => note.id !== local.id)];
+    await showEditor(local);
   }
 
   async function removeCurrent() {
+    if (!currentNote?.id) return;
     const uid = userId();
-    if (!uid || !currentNote?.id) return;
     const label = notePreview(currentNote);
     if (!window.confirm(`Delete “${label}”?`)) return;
-    if (!currentNote.local) await deleteNote(uid, currentNote.id);
+    const id = currentNote.id;
+    if (uid && !currentNote.local && !String(id).startsWith('local-')) {
+      await deleteNote(uid, id);
+    }
+    notesCache = notesCache.filter((note) => note.id !== id);
     showList();
   }
 
@@ -807,16 +1100,23 @@ export function createNotesController({
     removeSelected();
   });
   listEl?.addEventListener('click', async (event) => {
+    if (Date.now() < suppressListClickUntil) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
     const row = event.target.closest('.notes-row');
     if (!row) return;
+    if (event.target.closest('.notes-handle')) return;
     if (event.target.closest('.notes-delete')) {
-      const uid = userId();
-      if (!uid) return;
+      const id = row.dataset.id;
       const label = row.querySelector('.notes-title')?.textContent || 'this note';
       if (!window.confirm(`Delete “${label}”?`)) return;
-      await deleteNote(uid, row.dataset.id);
-      if (currentNote?.id === row.dataset.id) showList();
-      else renderList();
+      const uid = userId();
+      if (uid && id && !String(id).startsWith('local-')) await deleteNote(uid, id);
+      notesCache = notesCache.filter((note) => note.id !== id);
+      if (currentNote?.id === id) showList();
+      else paintNotesList(notesCache);
       return;
     }
     openNote(row.dataset.id);

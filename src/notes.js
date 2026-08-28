@@ -5,10 +5,9 @@ import {
   doc,
   getDoc,
   getDocs,
-  orderBy,
-  query,
   serverTimestamp,
   updateDoc,
+  writeBatch,
 } from 'firebase/firestore';
 import { detectSourceLang } from './detect.js';
 import { getFirestoreDb } from './firebase.js';
@@ -81,11 +80,58 @@ function notesCol(uid) {
   return collection(db, 'users', uid, 'notes');
 }
 
+function stampMs(value) {
+  if (!value) return 0;
+  if (typeof value.toMillis === 'function') return value.toMillis();
+  if (typeof value.toDate === 'function') return value.toDate().getTime();
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value.seconds === 'number') return value.seconds * 1000;
+  return 0;
+}
+
+export function nextFrontSortOrder(notes) {
+  let found = false;
+  let min = 0;
+  for (const note of notes || []) {
+    if (typeof note?.sortOrder === 'number' && Number.isFinite(note.sortOrder)) {
+      if (!found || note.sortOrder < min) min = note.sortOrder;
+      found = true;
+    }
+  }
+  return found ? min - 1 : 0;
+}
+
+export function compareNotes(a, b) {
+  const aOrder = typeof a?.sortOrder === 'number' && Number.isFinite(a.sortOrder);
+  const bOrder = typeof b?.sortOrder === 'number' && Number.isFinite(b.sortOrder);
+  if (aOrder && bOrder && a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
+  if (aOrder && !bOrder) return -1;
+  if (!aOrder && bOrder) return 1;
+  return stampMs(b?.updatedAt || b?.createdAt) - stampMs(a?.updatedAt || a?.createdAt);
+}
+
 export async function listNotes(uid) {
   const col = notesCol(uid);
   if (!col) return [];
-  const snap = await getDocs(query(col, orderBy('updatedAt', 'desc')));
-  return snap.docs.map((item) => ({ id: item.id, ...item.data() }));
+  const snap = await getDocs(col);
+  return snap.docs.map((item) => ({ id: item.id, ...item.data() })).sort(compareNotes);
+}
+
+export async function updateNoteOrder(uid, ids) {
+  const db = getFirestoreDb();
+  if (!db || !uid || !Array.isArray(ids) || !ids.length) return;
+  const remote = ids
+    .map((id, index) => ({ id, index }))
+    .filter((item) => item.id && !String(item.id).startsWith('local-'));
+  const chunkSize = 400;
+  for (let i = 0; i < remote.length; i += chunkSize) {
+    const batch = writeBatch(db);
+    for (const item of remote.slice(i, i + chunkSize)) {
+      batch.update(doc(db, 'users', uid, 'notes', item.id), { sortOrder: item.index });
+    }
+    await batch.commit();
+  }
 }
 
 export async function getNote(uid, id) {
@@ -99,10 +145,15 @@ export async function getNote(uid, id) {
 export async function createNote(uid, payload = {}) {
   const col = notesCol(uid);
   if (!col) throw new Error('Sign in to save notes.');
+  let sortOrder = payload.sortOrder;
+  if (typeof sortOrder !== 'number' || !Number.isFinite(sortOrder)) {
+    sortOrder = nextFrontSortOrder(await listNotes(uid));
+  }
   const ref = await addDoc(col, {
     title: stripTags(payload.title || ''),
     sourceLang: payload.sourceLang || 'zh_CN',
     blocks: Array.isArray(payload.blocks) ? payload.blocks : [],
+    sortOrder,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });

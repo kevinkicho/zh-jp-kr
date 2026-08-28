@@ -108,6 +108,12 @@ function applyLayout() {
   persistPrefs();
 }
 
+function syncLayoutChrome() {
+  const width = window.innerWidth;
+  appEl.classList.toggle('layout-tablet', width >= 720 && width < 1024);
+  appEl.classList.toggle('layout-split', width >= 1024);
+}
+
 function updateHint() {
   hintEl.classList.toggle('hidden', pad.hasInk());
 }
@@ -1066,7 +1072,9 @@ watchAuth((next) => {
 
 applyLanguage();
 applyLayout();
+syncLayoutChrome();
 applyAppMode();
+window.addEventListener('resize', syncLayoutChrome);
 updateHint();
 renderResults(null);
 

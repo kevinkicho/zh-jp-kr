@@ -29,6 +29,7 @@ All application code in this repository was written by **Grok 4.6** (xAI).
 - Google sign-in, settings, and history (search, language filter, newest / oldest / A–Z, paged 20 at a time)
 - History rows expand to the same detail as the cards (pronunciation included)
 - PWA — add it to the home screen
+- Phone stays stacked; tablet portrait uses the full width; Tab S7 landscape and desktop split the pad on the left and cards or Notes on the right
 
 ## Notes
 
@@ -36,6 +37,7 @@ Dictionary stays as-is. Switch to **Notes** for a document of stacked translatio
 
 - Sign in with **G**, tap **New**, give the note a title, then type or draw the same way as Dictionary. Suggestion cards still appear.
 - The list of saved notes is tappable. Tap a note to open it. There is no separate Load chip.
+- Drag the **⋮⋮** handle on a note to reorder the list. Opening and deleting still use the card and ✕.
 - Handwriting and suggestion taps insert at the last caret (title or body). They do not create a card.
 - Keyboard **Enter** in the compose box is a newline. Only the **Enter** button (or Ctrl/Cmd+Enter) translates and creates a card.
 - **Enter** becomes **Update** when a card is being edited.
@@ -50,12 +52,13 @@ EN · 简 · 拼音 · 繁 · 日 · ロマ · 한 · 로마
 - Tap a language row to hear it. 拼音 / ロマ / 로마 speak the original Chinese, Japanese, or Korean text with that language's voice (the romanization stays on screen).
 - **Edit** loads the card into the box so you can change it and tap **Update**. Tap **Done** (or hold the source line) to cancel.
 - **✕** deletes one card after confirm. The circle selects cards for **Delete selected**.
+- Drag the **⋮⋮** handle on a card to change its order. The rest of the card still speaks, edits, selects, or deletes as before.
 
 The chips above the cards (All, EN, 简, 拼音, 繁, 日, ロマ, 한, 로마) only filter which rows are shown. They stay on one row.
 
 ### Storage
 
-Notes live in Firestore at `users/{uid}/notes/{noteId}` (`title`, `sourceLang`, `blocks[]`) and stay private to that account. Each block stores `source`, `lang`, and `translations` including readings.
+Notes live in Firestore at `users/{uid}/notes/{noteId}` (`title`, `sourceLang`, `blocks[]`, `sortOrder`) and stay private to that account. Each block stores `source`, `lang`, and `translations` including readings. Card order is the `blocks` array. Note order is a `sortOrder` number (notes without one stay after those, newest first).
 
 Rules are in `firestore.rules`. Local saves work without sign-in; sign in to keep a note in the cloud.
 
