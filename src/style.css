@@ -1236,32 +1236,34 @@ body {
 
 .note-view-langs {
   display: flex;
+  flex-wrap: nowrap;
   flex-shrink: 0;
-  gap: 4px;
-  overflow-x: auto;
-  padding: 4px 0 8px;
-  scrollbar-width: none;
-}
-
-.note-view-langs::-webkit-scrollbar {
-  display: none;
+  align-items: center;
+  gap: 3px;
+  overflow: hidden;
+  padding: 2px 0 6px;
 }
 
 .note-view-langs button {
   appearance: none;
-  flex: 0 0 auto;
-  height: 28px;
-  padding: 0 10px;
+  flex: 1 1 0;
+  min-width: 0;
+  height: 24px;
+  padding: 0 3px;
   border: 1px solid var(--line);
   border-radius: 999px;
   background: var(--paper-2);
   color: var(--muted);
   font: inherit;
-  font-size: 12px;
+  font-size: 10px;
   font-weight: 600;
+  line-height: 22px;
+  white-space: nowrap;
+  overflow: hidden;
 }
 
-.note-view-langs button[aria-selected='true'] {
+.note-view-langs button[aria-selected='true'],
+.note-view-langs button[aria-pressed='true'] {
   background: var(--ink);
   color: var(--paper);
   border-color: transparent;
@@ -1323,21 +1325,33 @@ body {
 }
 
 .note-source {
-  min-height: 1.4em;
+  display: block;
+  width: 100%;
+  min-height: 2.4em;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  resize: none;
+  background: transparent;
   outline: none;
   color: var(--ink);
   font-size: 18px;
-  line-height: 1.4;
+  line-height: 1.55;
   font-family: "Noto Serif SC", "Noto Serif JP", "Noto Serif KR", "Noto Serif TC", serif;
   overflow-wrap: anywhere;
   word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.note-doc {
+  min-height: 0;
 }
 
 .note-xlate {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  margin-top: 8px;
+  margin-top: 6px;
 }
 
 .note-tr {
@@ -1345,13 +1359,26 @@ body {
   align-items: flex-start;
   gap: 8px;
   margin: 0;
+  cursor: pointer;
+}
+
+.note-tr:active {
+  opacity: 0.72;
 }
 
 .note-tr-label {
-  flex: 0 0 1.6em;
-  padding-top: 2px;
+  flex: 0 0 auto;
+  min-width: 2.4em;
+  height: 20px;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--paper-2);
   color: var(--muted);
-  font-size: 11px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
 }
 
 .note-tr-text {
@@ -1387,4 +1414,189 @@ body {
   #app.mode-notes.note-open .workspace {
     flex-basis: 28%;
   }
+}
+
+.note-load,
+.note-save,
+.notes-load {
+  appearance: none;
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--paper-2);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.note-save {
+  border: 0;
+  background: var(--vermilion);
+  color: #fff8f2;
+}
+
+.notes-load {
+  flex: 0 0 auto;
+  align-self: center;
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.setting-hint {
+  margin: -8px 0 12px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.note-enter {
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 40px;
+  margin: 6px 0 4px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--vermilion);
+  color: #fff8f2;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.note-compose {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 10px;
+}
+
+.note-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.note-card-source {
+  margin: 0;
+  color: var(--ink);
+  font-size: 18px;
+  line-height: 1.45;
+  font-family: "Noto Serif SC", "Noto Serif JP", "Noto Serif KR", "Noto Serif TC", serif;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  cursor: pointer;
+}
+
+.note-card-source:active {
+  opacity: 0.72;
+}
+
+.note-card {
+  padding: 10px 10px 8px;
+}
+
+.note-card {
+  cursor: pointer;
+}
+
+.note-card.is-editing {
+  border-color: #7a3a30;
+  box-shadow: inset 3px 0 0 var(--vermilion);
+}
+
+.note-card {
+  position: relative;
+  padding-right: 92px;
+}
+
+.note-card-edit {
+  appearance: none;
+  position: absolute;
+  top: 8px;
+  right: 40px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--paper-2);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.note-card.is-editing .note-card-edit {
+  background: var(--vermilion);
+  color: #fff8f2;
+  border-color: transparent;
+}
+
+.note-card-delete {
+  appearance: none;
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(243, 235, 225, 0.12);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.note-card-select {
+  appearance: none;
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.note-card {
+  padding-left: 36px;
+}
+
+.note-card.is-selected {
+  border-color: #7a3a30;
+}
+
+.note-card-tools {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 0 8px;
+}
+
+.note-card-tools[hidden] {
+  display: none;
+}
+
+.note-delete-selected {
+  appearance: none;
+  height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--vermilion-soft);
+  color: #ffd7cf;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.note-tr[data-key='zh_pinyin'] .note-tr-text,
+.note-tr[data-key='ja_romaji'] .note-tr-text,
+.note-tr[data-key='ko_romanization'] .note-tr-text {
+  color: var(--muted);
+  font-size: 13px;
 }

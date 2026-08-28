@@ -14,9 +14,29 @@ import { detectSourceLang } from './detect.js';
 import { getFirestoreDb } from './firebase.js';
 
 export const NOTE_LANGS = ['en', 'zh_CN', 'zh_TW', 'ja', 'ko'];
+export const NOTE_READINGS = ['zh_pinyin', 'ja_romaji', 'ko_romanization'];
+export const NOTE_ROWS = [
+  { key: 'en', label: 'EN' },
+  { key: 'zh_CN', label: '简' },
+  { key: 'zh_pinyin', label: '拼音' },
+  { key: 'zh_TW', label: '繁' },
+  { key: 'ja', label: '日' },
+  { key: 'ja_romaji', label: 'ロマ' },
+  { key: 'ko', label: '한' },
+  { key: 'ko_romanization', label: '로마' },
+];
 
 export function emptyTranslations() {
-  return { en: '', zh_CN: '', zh_TW: '', ja: '', ko: '' };
+  return {
+    en: '',
+    zh_CN: '',
+    zh_TW: '',
+    ja: '',
+    ko: '',
+    zh_pinyin: '',
+    ja_romaji: '',
+    ko_romanization: '',
+  };
 }
 
 export function stripTags(value) {
@@ -47,6 +67,9 @@ export function translationsFromApi(text, language, data) {
     zh_TW: data?.zh?.traditional || (fromLang === 'zh_TW' ? source : ''),
     ja: fromLang === 'ja' ? source : data?.ja?.text || '',
     ko: fromLang === 'ko' ? source : data?.ko?.text || '',
+    zh_pinyin: data?.zh?.pinyin || '',
+    ja_romaji: data?.ja?.romaji || data?.ja?.kana || '',
+    ko_romanization: data?.ko?.romanization || '',
   };
   translations[fromLang] = source;
   return { fromLang, translations };

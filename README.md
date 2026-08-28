@@ -32,38 +32,42 @@ All application code in this repository was written by **Grok 4.6** (xAI).
 
 ## Notes
 
-Dictionary is unchanged. Switch to **Notes** for a multi-line document that you can reopen later.
+Dictionary stays as-is. Switch to **Notes** for a document of stacked translation cards you can reopen later.
 
-- Sign in, tap **New**, then type or draw the same way as Dictionary. Suggestion cards still appear.
-- A line is translated on **Done / Enter**, **Add**, picking a handwriting suggestion, or leaving the line — not on every keystroke.
-- Each line keeps 英 / 简 / 繁 / 日 / 한 under it (or use the language toggle). The Dictionary card grid is not used here.
-- Notes live in Firestore at `users/{uid}/notes/{noteId}` and stay private to that account.
+- Sign in with **G**, tap **New**, give the note a title, then type or draw the same way as Dictionary. Suggestion cards still appear.
+- The list of saved notes is tappable. Tap a note to open it. There is no separate Load chip.
+- Handwriting and suggestion taps insert at the last caret (title or body). They do not create a card.
+- Keyboard **Enter** in the compose box is a newline. Only the **Enter** button (or Ctrl/Cmd+Enter) translates and creates a card.
+- **Enter** becomes **Update** when a card is being edited.
+
+### Cards
+
+Each card keeps the source on top and stacked rows under it:
+
+EN · 简 · 拼音 · 繁 · 日 · ロマ · 한 · 로마
+
+- Tap the source line to hear it in that language.
+- Tap a language row to hear it. 拼音 / ロマ / 로마 speak the original Chinese, Japanese, or Korean text with that language's voice (the romanization stays on screen).
+- **Edit** loads the card into the box so you can change it and tap **Update**. Tap **Done** (or hold the source line) to cancel.
+- **✕** deletes one card after confirm. The circle selects cards for **Delete selected**.
+
+The chips above the cards (All, EN, 简, 拼音, 繁, 日, ロマ, 한, 로마) only filter which rows are shown. They stay on one row.
+
+### Storage
+
+Notes live in Firestore at `users/{uid}/notes/{noteId}` (`title`, `sourceLang`, `blocks[]`) and stay private to that account. Each block stores `source`, `lang`, and `translations` including readings.
+
+Rules are in `firestore.rules`. Local saves work without sign-in; sign in to keep a note in the cloud.
 
 ## Run locally
 
-```bash
-npm install
-npm run dev
-```
+Open http://localhost:5173 after installing dependencies.
 
-Open http://localhost:5173 (or the LAN address printed in the terminal, on a phone).
+Copy `.env.example` to `.env`. Keep secrets and Admin SDK JSON out of git.
 
-Copy `.env.example` to `.env`. Keep Firebase Admin keys, `OLLAMA_API_KEY`, and `.env` out of git.
+Translations use Ollama Cloud first (default model gpt-oss:120b), then Google Translate if needed. The key stays on the server. Handwriting still uses Google Input Tools.
 
-```
-OLLAMA_API_KEY=          # Ollama Cloud, server-side only
-OLLAMA_MODEL=gemma4:31b  # optional; gpt-oss:20b is the fallback
-```
-
-Translations use **Ollama Cloud** first, then Google Translate if the model is unavailable. The key is never shipped to the browser (local Express and Cloud Functions only). Handwriting recognition still uses Google Input Tools.
-
-```bash
-npm run build
-npm start          # production Node server
-npm run deploy     # Firebase Hosting + functions
-```
-
-Deployed functions read `functions/.env` for `OLLAMA_API_KEY` (also gitignored).
+Production: build, then start the Node server, or deploy Hosting and functions. Deployed functions read their own env file for the Ollama key.
 
 ## License
 

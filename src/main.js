@@ -315,8 +315,12 @@ document.getElementById('lang-select').addEventListener('change', (event) => {
 candidatesEl.addEventListener('click', (event) => {
   const button = event.target.closest('.candidate');
   if (!button) return;
-  appendText(candidates[Number(button.dataset.index)]);
-  if (appMode === 'notes' && notes?.isEditing()) notes.commitFromComposer({ fromCandidate: true });
+  const value = candidates[Number(button.dataset.index)];
+  if (appMode === 'notes' && notes?.isEditing()) {
+    notes.insertAtCaret(value);
+    return;
+  }
+  appendText(value);
 });
 
 let cardPressTimer = 0;
@@ -475,13 +479,15 @@ document.getElementById('clear').addEventListener('click', () => {
 });
 
 document.getElementById('accept').addEventListener('click', () => {
+  if (appMode === 'notes' && notes?.isEditing()) {
+    if (candidates[0]) notes.insertAtCaret(candidates[0]);
+    else if (phraseEl.value.trim()) notes.insertFromComposer();
+    else if (pad.hasInk()) runRecognize();
+    return;
+  }
   if (candidates[0]) appendText(candidates[0]);
   else if (pad.hasInk()) {
     runRecognize();
-    return;
-  }
-  if (appMode === 'notes') {
-    if (phraseEl.value.trim()) notes?.commitFromComposer();
     return;
   }
   if (phraseEl.value.trim()) runTranslate();
@@ -526,7 +532,7 @@ function submitPhrase(event) {
   event?.preventDefault();
   hideKeyboard();
   if (appMode === 'notes') {
-    notes?.commitFromComposer();
+    notes?.insertFromComposer();
     return;
   }
   runTranslate();
@@ -572,8 +578,7 @@ phraseEl.addEventListener('blur', () => {
   window.setTimeout(() => {
     if (pointerInComposerChrome) return;
     if (document.activeElement === phraseEl) return;
-    if (document.activeElement?.closest?.('#phrase-form, .workspace')) return;
-    notes.commitFromComposer();
+    notes?.insertFromComposer();
   }, 80);
 });
 
@@ -609,6 +614,7 @@ notes = createNotesController({
     appEl.classList.toggle('note-open', Boolean(notes?.hasOpenNote()));
     window.setTimeout(() => pad.resize(), 40);
   },
+  onHistory: persistHistory,
 });
 
 document.querySelector('.mode-switch')?.addEventListener('click', (event) => {
@@ -618,14 +624,15 @@ document.querySelector('.mode-switch')?.addEventListener('click', (event) => {
   applyAppMode();
 });
 
-function persistHistory(text, data) {
+function persistHistory(text, data, sourceLang) {
   if (!user || !saveHistoryEnabled || !text || !data) return;
-  const key = `${language}:${text}`;
+  const lang = sourceLang || language;
+  const key = `${lang}:${text}`;
   if (key === lastSavedHistory) return;
   lastSavedHistory = key;
   saveHistory(user.uid, {
     source: text,
-    language,
+    language: lang,
     zh: data.zh || null,
     ja: data.ja || null,
     ko: data.ko || null,
@@ -923,6 +930,14 @@ menuSheet.addEventListener('click', async (event) => {
   if (open?.dataset.open === 'history') {
     openSheet(historySheet);
     await renderHistory();
+    return;
+  }
+  if (open?.dataset.open === 'notes') {
+    closeSheets();
+    appMode = 'notes';
+    applyAppMode();
+    notes?.showList();
+    notes?.renderList();
     return;
   }
   if (open?.dataset.open === 'settings') {

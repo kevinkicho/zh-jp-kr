@@ -151,15 +151,22 @@
               autocomplete="off"
               spellcheck="false"
             />
+            <button type="button" id="note-save" class="note-save">Save</button>
             <button type="button" class="icon-btn" id="note-delete" aria-label="Delete note">✕</button>
           </div>
-          <div class="note-view-langs" id="note-view-langs" role="tablist" aria-label="Translation language">
-            <button type="button" data-view-lang="all" aria-selected="true">All</button>
-            <button type="button" data-view-lang="en">EN</button>
-            <button type="button" data-view-lang="zh_CN">简</button>
-            <button type="button" data-view-lang="zh_TW">繁</button>
-            <button type="button" data-view-lang="ja">日</button>
-            <button type="button" data-view-lang="ko">한</button>
+          <div class="note-view-langs" id="note-view-langs" role="group" aria-label="Shown languages">
+            <button type="button" data-view-lang="all" aria-pressed="true">All</button>
+            <button type="button" data-view-lang="en" aria-pressed="false">EN</button>
+            <button type="button" data-view-lang="zh_CN" aria-pressed="false">简</button>
+            <button type="button" data-view-lang="zh_pinyin" aria-pressed="false">拼音</button>
+            <button type="button" data-view-lang="zh_TW" aria-pressed="false">繁</button>
+            <button type="button" data-view-lang="ja" aria-pressed="false">日</button>
+            <button type="button" data-view-lang="ja_romaji" aria-pressed="false">ロマ</button>
+            <button type="button" data-view-lang="ko" aria-pressed="false">한</button>
+            <button type="button" data-view-lang="ko_romanization" aria-pressed="false">로마</button>
+          </div>
+          <div class="note-card-tools" id="note-card-tools" hidden>
+            <button type="button" id="note-delete-selected" class="note-delete-selected">Delete selected</button>
           </div>
           <div class="note-editor notranslate" id="note-editor" translate="no"></div>
         </div>
@@ -176,6 +183,7 @@
           </div>
         </div>
         <button type="button" class="sheet-item" data-open="history">History</button>
+        <button type="button" class="sheet-item" data-open="notes">Load notes</button>
         <button type="button" class="sheet-item" data-open="settings">Settings</button>
         <button type="button" class="sheet-item danger" id="sign-out">Sign out</button>
       </div>
@@ -244,6 +252,7 @@
             <span>Save history</span>
             <input type="checkbox" id="setting-history" checked />
           </label>
+          <p class="setting-hint">Dictionary lookups and note lines are saved when this is on. Open them from History, or tap a note in the list.</p>
           <label class="setting">
             <span>Speak after translate</span>
             <input type="checkbox" id="setting-speak" />

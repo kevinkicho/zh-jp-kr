@@ -144,7 +144,7 @@ async function chatOnce(model, messages) {
       options: { temperature: 0 },
       messages,
     }),
-    signal: AbortSignal.timeout(22000),
+    signal: AbortSignal.timeout(55000),
   });
   const raw = await response.text();
   if (response.status === 403 || response.status === 404) {

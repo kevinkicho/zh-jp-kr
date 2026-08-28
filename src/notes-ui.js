@@ -1,18 +1,66 @@
-import { detectSourceLang, translate } from './api.js';
+import { detectSourceLang, langById, speak, translate } from './api.js';
 import { firebaseEnabled } from './firebase.js';
-import { NoteParagraph } from './note-block.js';
 import {
+  NOTE_LANGS,
+  NOTE_ROWS,
   createNote,
   deleteNote,
   emptyTranslations,
   getNote,
   listNotes,
+  newBlockId,
   notePreview,
   noteWhen,
   saveNote,
   stripTags,
   translationsFromApi,
 } from './notes.js';
+
+const LABELS = Object.fromEntries(NOTE_ROWS.map((row) => [row.key, row.label]));
+const ALL_KEYS = NOTE_ROWS.map((row) => row.key);
+const TTS_BY_KEY = {
+  en: 'en-US',
+  zh_CN: 'zh-CN',
+  zh_TW: 'zh-TW',
+  zh_pinyin: 'zh-CN',
+  ja: 'ja-JP',
+  ja_romaji: 'ja-JP',
+  ko: 'ko-KR',
+  ko_romanization: 'ko-KR',
+};
+
+const READING_SPEAK = {
+  zh_pinyin: { keys: ['zh_CN', 'zh_TW'], ttsKey: 'zh_CN' },
+  ja_romaji: { keys: ['ja'], ttsKey: 'ja' },
+  ko_romanization: { keys: ['ko'], ttsKey: 'ko' },
+};
+
+function speakKey(text, key) {
+  const value = String(text || '').trim();
+  if (!value) return;
+  speak(value, TTS_BY_KEY[key] || langById(key).tts);
+}
+
+function speakSource(block) {
+  const value = String(block.source || '').trim();
+  if (!value) return;
+  speak(value, langById(block.lang).tts);
+}
+
+function textForLang(block, key) {
+  if (block.lang === key && block.source) return block.source;
+  return block.translations?.[key] || '';
+}
+
+function speakRow(block, key, fallback) {
+  const reading = READING_SPEAK[key];
+  if (reading) {
+    const spoken = reading.keys.map((item) => textForLang(block, item)).find((item) => String(item || '').trim());
+    speakKey(spoken, reading.ttsKey);
+    return;
+  }
+  speakKey(fallback, key);
+}
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -22,11 +70,11 @@ function escapeHtml(value) {
     .replaceAll('"', '&quot;');
 }
 
-function plainListSource(items) {
-  return (items || [])
-    .map((item) => stripTags(typeof item === 'string' ? item : item?.content || item?.text || ''))
-    .filter(Boolean)
-    .join('\n');
+function setDisplay(el, value) {
+  if (!el) return;
+  el.textContent = '';
+  if (value) el.dataset.display = value;
+  else delete el.dataset.display;
 }
 
 export function createNotesController({
@@ -38,6 +86,7 @@ export function createNotesController({
   setStatus,
   hideKeyboard,
   onOpenChange,
+  onHistory,
 }) {
   const pane = document.getElementById('notes-pane');
   const listView = document.getElementById('notes-list-view');
@@ -47,19 +96,21 @@ export function createNotesController({
   const editorHolder = document.getElementById('note-editor');
   const viewLangs = document.getElementById('note-view-langs');
 
-  let editor = null;
-  let editorMods = null;
-  let tools = [];
-  let toolsById = new Map();
   let currentNote = null;
-  let viewLang = 'all';
+  let cards = [];
+  let sourceEl = null;
+  let cardsEl = null;
+  let viewKeys = new Set(['all']);
+  let selectedIds = new Set();
   let saveTimer = 0;
   let titleTimer = 0;
   let persistSeq = 0;
   let translateSeq = 0;
-  let committing = false;
   let entered = false;
-  let lastCommitStamp = '';
+  let editingId = null;
+  let caret = { start: 0, end: 0 };
+  let titleCaret = { start: 0, end: 0 };
+  let insertTarget = 'body';
 
   function userId() {
     return getUser()?.uid || null;
@@ -78,336 +129,463 @@ export function createNotesController({
     onOpenChange?.(hasOpenNote());
   }
 
+  function showingAll() {
+    return viewKeys.has('all') || viewKeys.size === 0;
+  }
+
+  function rowVisible(key, sourceLang) {
+    if (key === sourceLang) return false;
+    if (showingAll()) return true;
+    return viewKeys.has(key);
+  }
+
   function applyViewLang() {
-    if (editorView) editorView.dataset.viewLang = viewLang;
+    if (editorView) editorView.dataset.viewLangs = showingAll() ? 'all' : [...viewKeys].join(' ');
     if (!viewLangs) return;
     viewLangs.querySelectorAll('[data-view-lang]').forEach((button) => {
-      button.setAttribute('aria-selected', String(button.dataset.viewLang === viewLang));
+      const key = button.dataset.viewLang;
+      const on = showingAll() ? key === 'all' : viewKeys.has(key);
+      button.setAttribute('aria-pressed', String(on));
     });
+    editorHolder?.querySelectorAll('.note-tr').forEach((row) => {
+      const card = row.closest('.note-card');
+      const lang = cards.find((item) => item.id === card?.dataset.id)?.lang;
+      row.hidden = !rowVisible(row.dataset.key, lang);
+    });
+    const tools = document.getElementById('note-card-tools');
+    if (tools) tools.hidden = selectedIds.size === 0;
   }
 
-  function rememberTool(tool) {
-    if (!tool) return;
-    if (!tools.includes(tool)) tools.push(tool);
-    if (tool.blockId) toolsById.set(tool.blockId, tool);
+  function composeText() {
+    return sourceEl ? sourceEl.value : '';
   }
 
-  async function loadEditorMods() {
-    if (editorMods) return editorMods;
-    const [{ default: EditorJS }, { default: Header }, { default: EditorjsList }] = await Promise.all([
-      import('@editorjs/editorjs'),
-      import('@editorjs/header'),
-      import('@editorjs/list'),
-    ]);
-    editorMods = { EditorJS, Header, EditorjsList };
-    return editorMods;
+  function fitCompose() {
+    if (!sourceEl) return;
+    sourceEl.style.height = 'auto';
+    sourceEl.style.height = `${Math.max(sourceEl.scrollHeight, 40)}px`;
   }
 
-  function toolConfig() {
-    return {
-      defaultLang: getLanguage(),
-      onCreate(tool) {
-        rememberTool(tool);
-      },
-      onDirty() {
-        queueSave();
-      },
-      onFocusBlock(tool) {
-        rememberTool(tool);
-        const live = stripTags(getPhrase()).trim();
-        const source = stripTags(tool.data?.source || '').trim();
-        if (live && live !== source) return;
-        tools.forEach((item) => item.setSelected(item === tool));
-        if (source) setPhrase(source);
-      },
-      onCommitBlock(tool) {
-        rememberTool(tool);
-        commitTool(tool);
-      },
-      onRequestNewBlock() {
-        if (!editor) return;
-        editor.blocks.insert('noteParagraph', {
-          source: '',
-          lang: getLanguage(),
-          translations: emptyTranslations(),
-        });
-      },
+  function cardNode(block) {
+    const wrap = document.createElement('article');
+    wrap.className = 'note-block note-card';
+    wrap.dataset.id = block.id;
+    wrap.tabIndex = 0;
+    wrap.setAttribute('aria-label', 'Translation card');
+    if (editingId === block.id) wrap.classList.add('is-editing');
+    if (selectedIds.has(block.id)) wrap.classList.add('is-selected');
+    const pick = document.createElement('button');
+    pick.type = 'button';
+    pick.className = 'note-card-select';
+    pick.setAttribute('aria-label', 'Select this card');
+    pick.setAttribute('aria-pressed', String(selectedIds.has(block.id)));
+    pick.textContent = selectedIds.has(block.id) ? '●' : '○';
+    pick.addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleSelect(block.id);
+    });
+    const source = document.createElement('p');
+    source.className = 'note-card-source';
+    source.lang = langById(block.lang).htmlLang;
+    source.textContent = block.source || '';
+    source.title = 'Tap to listen, hold to edit';
+    source.setAttribute('role', 'button');
+    let sourceHold = 0;
+    const clearSourceHold = () => {
+      if (sourceHold) window.clearTimeout(sourceHold);
+      sourceHold = 0;
     };
-  }
-
-  async function ensureEditor(blocks) {
-    await destroyEditor();
-    tools = [];
-    toolsById = new Map();
-    const { EditorJS, Header, EditorjsList } = await loadEditorMods();
-    editor = new EditorJS({
-      holder: editorHolder,
-      minHeight: 80,
-      autofocus: false,
-      defaultBlock: 'noteParagraph',
-      placeholder: 'Type here, or draw below and tap a suggestion.',
-      data: { blocks: blocks || [] },
-      tools: {
-        noteParagraph: {
-          class: NoteParagraph,
-          config: toolConfig(),
-        },
-        header: {
-          class: Header,
-          config: { levels: [2, 3], defaultLevel: 2 },
-        },
-        list: {
-          class: EditorjsList,
-          inlineToolbar: false,
-        },
-      },
-      onReady() {
-        collectTools();
-      },
-      onChange() {
-        collectTools();
-        queueSave();
-      },
+    source.addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      clearSourceHold();
+      sourceHold = window.setTimeout(() => {
+        sourceHold = 0;
+        beginEdit(block.id);
+      }, 480);
     });
-    await editor.isReady;
-    collectTools();
-  }
-
-  function collectTools() {
-    editorHolder?.querySelectorAll('.note-block').forEach((node) => {
-      // Tools keep themselves in toolsById from constructor/focus.
+    source.addEventListener('pointerup', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!sourceHold) return;
+      clearSourceHold();
+      speakSource(block);
     });
-  }
-
-  async function destroyEditor() {
-    if (!editor) return;
-    const current = editor;
-    editor = null;
-    tools = [];
-    toolsById = new Map();
-    try {
-      await current.isReady;
-    } catch {
-      // ignore init failures
+    source.addEventListener('pointercancel', clearSourceHold);
+    const xlate = document.createElement('div');
+    xlate.className = 'note-xlate';
+    for (const rowDef of NOTE_ROWS) {
+      const key = rowDef.key;
+      if (!rowVisible(key, block.lang)) continue;
+      const value = block.translations?.[key] || '';
+      if (!String(value).trim() && !showingAll()) continue;
+      const row = document.createElement('p');
+      row.className = 'note-tr';
+      row.dataset.key = key;
+      const label = document.createElement('span');
+      label.className = 'note-tr-label';
+      label.textContent = rowDef.label;
+      const text = document.createElement('span');
+      text.className = 'note-tr-text';
+      setDisplay(text, value);
+      row.title = 'Tap to listen';
+      row.setAttribute('role', 'button');
+      row.append(label, text);
+      row.addEventListener('pointerdown', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        speakRow(block, key, value);
+      });
+      xlate.append(row);
     }
-    try {
-      current.destroy();
-    } catch {
-      // ignore
+    const edit = document.createElement('button');
+    edit.type = 'button';
+    edit.className = 'note-card-edit';
+    const editing = editingId === block.id;
+    edit.setAttribute('aria-label', editing ? 'Done editing' : 'Edit this card');
+    edit.textContent = editing ? 'Done' : 'Edit';
+    edit.addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      beginEdit(block.id);
+    });
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'note-card-delete';
+    del.setAttribute('aria-label', 'Delete this card');
+    del.textContent = '✕';
+    del.addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      removeCard(block.id);
+    });
+    wrap.append(pick, edit, del, source, xlate);
+    return wrap;
+  }
+
+  function toggleSelect(id) {
+    if (selectedIds.has(id)) selectedIds.delete(id);
+    else selectedIds.add(id);
+    renderCards();
+    applyViewLang();
+  }
+
+  function removeSelected() {
+    if (!selectedIds.size) return;
+    const n = selectedIds.size;
+    if (!window.confirm(`Delete ${n} card${n === 1 ? '' : 's'}?`)) return;
+    cards = cards.filter((item) => !selectedIds.has(item.id));
+    if (editingId && selectedIds.has(editingId)) {
+      editingId = null;
+      if (sourceEl) sourceEl.value = '';
+      fitCompose();
+      setEnterLabel();
     }
-    if (editorHolder) editorHolder.replaceChildren();
-  }
-
-  function blocksToEditor(blocks) {
-    return (blocks || []).map((block) => {
-      if (block.type === 'header') {
-        return {
-          id: block.id,
-          type: 'header',
-          data: { text: stripTags(block.source || ''), level: 2 },
-        };
-      }
-      if (block.type === 'list') {
-        const items = stripTags(block.source || '')
-          .split('\n')
-          .map((item) => item.trim())
-          .filter(Boolean);
-        return {
-          id: block.id,
-          type: 'list',
-          data: { style: 'unordered', items: items.length ? items : [''] },
-        };
-      }
-      return {
-        id: block.id,
-        type: 'noteParagraph',
-        data: {
-          source: stripTags(block.source || ''),
-          lang: block.lang || getLanguage(),
-          translations: { ...emptyTranslations(), ...(block.translations || {}) },
-        },
-      };
+    selectedIds.clear();
+    renderCards();
+    applyViewLang();
+    persistNote().catch((error) => {
+      setStatus(error.message || 'Could not delete cards.');
     });
   }
 
-  async function editorToBlocks() {
-    if (!editor) return currentNote?.blocks || [];
-    const saved = await editor.save();
-    const mapped = (saved.blocks || []).map((block) => {
-      if (block.type === 'header') {
-        const existing = (currentNote?.blocks || []).find((item) => item.id === block.id);
-        return {
-          id: block.id,
-          type: 'header',
-          source: stripTags(block.data?.text || ''),
-          lang: existing?.lang || getLanguage(),
-          translations: { ...emptyTranslations(), ...(existing?.translations || {}) },
-        };
-      }
-      if (block.type === 'list') {
-        const existing = (currentNote?.blocks || []).find((item) => item.id === block.id);
-        return {
-          id: block.id,
-          type: 'list',
-          source: plainListSource(block.data?.items || []),
-          lang: existing?.lang || getLanguage(),
-          translations: { ...emptyTranslations(), ...(existing?.translations || {}) },
-        };
-      }
-      const data = block.data || {};
-      return {
-        id: block.id,
-        type: 'paragraph',
-        source: stripTags(data.source || data.text || ''),
-        lang: data.lang || getLanguage(),
-        translations: { ...emptyTranslations(), ...(data.translations || {}) },
-      };
+  function removeCard(id) {
+    const block = cards.find((item) => item.id === id);
+    if (!block) return;
+    const label = stripTags(block.source || '').trim().slice(0, 40) || 'this card';
+    if (!window.confirm(`Delete “${label}”?`)) return;
+    cards = cards.filter((item) => item.id !== id);
+    selectedIds.delete(id);
+    if (editingId === id) {
+      editingId = null;
+      if (sourceEl) sourceEl.value = '';
+      fitCompose();
+      setEnterLabel();
+      setStatus('');
+    }
+    renderCards();
+    persistNote().catch((error) => {
+      setStatus(error.message || 'Could not delete card.');
     });
-    return mapped.filter((block) => stripTags(block.source || '').trim());
+  }
+
+  function beginEdit(id) {
+    const block = cards.find((item) => item.id === id);
+    if (!block) return;
+    if (editingId === id) {
+      editingId = null;
+      if (sourceEl) sourceEl.value = '';
+      fitCompose();
+      renderCards();
+      setEnterLabel();
+      setStatus('');
+      return;
+    }
+    editingId = id;
+    insertTarget = 'body';
+    if (sourceEl) {
+      sourceEl.value = block.source || '';
+      sourceEl.lang = langById(block.lang || getLanguage()).htmlLang;
+      fitCompose();
+      sourceEl.focus({ preventScroll: true });
+      const pos = sourceEl.value.length;
+      caret = { start: pos, end: pos };
+      sourceEl.setSelectionRange(pos, pos);
+    }
+    renderCards();
+    setEnterLabel();
+    setStatus('Editing this card. Tap Enter to update.');
+  }
+
+  function setEnterLabel() {
+    const button = document.getElementById('note-enter');
+    if (!button || button.disabled) return;
+    button.textContent = editingId ? 'Update' : 'Enter';
+  }
+
+  function renderCards() {
+    if (!cardsEl) return;
+    cardsEl.replaceChildren();
+    for (const block of cards) {
+      if (!stripTags(block.source || '').trim()) continue;
+      cardsEl.append(cardNode(block));
+    }
   }
 
   function queueSave() {
     window.clearTimeout(saveTimer);
     saveTimer = window.setTimeout(() => {
       persistNote().catch(() => {});
-    }, 450);
+    }, 400);
   }
 
   async function persistNote() {
-    const uid = userId();
-    if (!uid || !currentNote?.id || !editor) return;
+    if (!currentNote || !hasOpenNote()) return;
     const seq = ++persistSeq;
-    const blocks = await editorToBlocks();
-    if (seq !== persistSeq) return;
-    currentNote.blocks = blocks;
     currentNote.title = titleEl?.value || '';
     currentNote.sourceLang = getLanguage();
+    currentNote.blocks = cards.map((block) => ({
+      id: block.id || newBlockId(),
+      type: 'paragraph',
+      source: stripTags(block.source || ''),
+      lang: block.lang || getLanguage(),
+      translations: { ...emptyTranslations(), ...(block.translations || {}) },
+    }));
+    const uid = userId();
+    if (!uid) return;
+    if (seq !== persistSeq) return;
+    if (currentNote.local || String(currentNote.id || '').startsWith('local-')) {
+      const id = await createNote(uid, {
+        title: currentNote.title,
+        sourceLang: currentNote.sourceLang,
+        blocks: currentNote.blocks,
+      });
+      currentNote.id = id;
+      currentNote.local = false;
+      return;
+    }
     await saveNote(uid, currentNote.id, {
       title: currentNote.title,
       sourceLang: currentNote.sourceLang,
-      blocks,
+      blocks: currentNote.blocks,
     });
   }
 
-  async function commitTool(tool) {
-    if (!tool || committing) return;
-    tool.syncFromDom?.();
-    const source = stripTags(tool.data?.source || '').trim();
-    if (!source || !tool.needsTranslate?.()) return;
+  async function translateNote() {
+    const source = stripTags(composeText()).trim();
+    if (!source) {
+      setStatus('Nothing to translate.');
+      return;
+    }
     const seq = ++translateSeq;
-    const language = detectSourceLang(source, tool.data.lang || getLanguage());
-    tool.setTranslating(true);
+    const language = detectSourceLang(source, getLanguage());
     setStatus('Translating…');
     try {
       const data = await translate({ text: source, language });
       if (seq !== translateSeq) return;
       const mapped = translationsFromApi(source, language, data);
-      tool.setTranslations(mapped.translations, mapped.fromLang);
-      setStatus('');
-      queueSave();
-    } catch (error) {
-      tool.setTranslating(false);
-      setStatus(error.message || 'Translation failed.');
-    }
-  }
-
-  function focusedSource() {
-    const active = document.activeElement;
-    if (active?.classList?.contains('note-source')) return active;
-    return editorHolder?.querySelector('.ce-block--focused .note-source') || null;
-  }
-
-  function toolForSource(el) {
-    if (!el) return null;
-    for (const tool of tools) {
-      if (tool.sourceEl === el || tool.wrapper?.contains(el)) return tool;
-    }
-    return null;
-  }
-
-  function selectedTool() {
-    return tools.find((item) => item.selected) || toolForSource(focusedSource());
-  }
-
-  async function insertParagraph(source, lang, translations) {
-    if (!editor) return null;
-    await editor.isReady;
-    const index = editor.blocks.getBlocksCount();
-    editor.blocks.insert(
-      'noteParagraph',
-      {
+      const hasText = NOTE_LANGS.some(
+        (key) => key !== mapped.fromLang && String(mapped.translations[key] || '').trim()
+      );
+      if (!hasText) throw new Error('Translation came back empty. Try Enter again.');
+      const next = {
+        id: editingId || newBlockId(),
+        type: 'paragraph',
         source,
-        lang,
-        translations: translations || emptyTranslations(),
-      },
-      undefined,
-      index,
-      true
-    );
-    collectTools();
-    await new Promise((resolve) => window.setTimeout(resolve, 0));
-    return tools.at(-1) || [...toolsById.values()].at(-1) || null;
+        lang: mapped.fromLang,
+        translations: mapped.translations,
+      };
+      const index = editingId ? cards.findIndex((item) => item.id === editingId) : -1;
+      if (index >= 0) cards[index] = next;
+      else cards.push(next);
+      editingId = null;
+      if (sourceEl) sourceEl.value = '';
+      fitCompose();
+      renderCards();
+      setEnterLabel();
+      onHistory?.(source, data, mapped.fromLang);
+      setStatus(index >= 0 ? 'Updated.' : '');
+      await persistNote();
+    } catch (error) {
+      if (seq !== translateSeq) return;
+      setStatus(error.message || 'Translation failed.');
+    }
   }
 
-  async function commitFromComposer({ fromCandidate = false } = {}) {
-    if (!isEditing()) return false;
-    const text = stripTags(getPhrase()).trim();
-    if (!text) return false;
-    const language = detectSourceLang(text, getLanguage());
-    const stamp = `${currentNote.id}:${language}:${text}`;
-    if (stamp === lastCommitStamp) return false;
-    lastCommitStamp = stamp;
-    committing = true;
-    hideKeyboard?.();
-    setStatus('Translating…');
-    try {
-      const target = selectedTool();
-      const data = await translate({ text, language });
-      const mapped = translationsFromApi(text, language, data);
+  function rememberCaret() {
+    if (!sourceEl) return;
+    insertTarget = 'body';
+    const start = sourceEl.selectionStart;
+    const end = sourceEl.selectionEnd;
+    if (typeof start === 'number') caret.start = start;
+    if (typeof end === 'number') caret.end = end;
+  }
 
-      if (target) {
-        target.setSource(text, mapped.fromLang);
-        target.setTranslations(mapped.translations, mapped.fromLang);
-        target.setSelected(false);
-      } else {
-        const created = await insertParagraph(text, mapped.fromLang, mapped.translations);
-        if (created) {
-          created.setSource(text, mapped.fromLang);
-          created.setTranslations(mapped.translations, mapped.fromLang);
-          rememberTool(created);
-        }
-      }
-      tools.forEach((item) => item.setSelected(false));
-      setPhrase('');
-      setStatus('');
-      queueSave();
-      return true;
-    } catch (error) {
-      lastCommitStamp = '';
-      setStatus(error.message || 'Translation failed.');
-      return false;
-    } finally {
-      committing = false;
+  function rememberTitleCaret() {
+    if (!titleEl) return;
+    insertTarget = 'title';
+    const start = titleEl.selectionStart;
+    const end = titleEl.selectionEnd;
+    if (typeof start === 'number') titleCaret.start = start;
+    if (typeof end === 'number') titleCaret.end = end;
+  }
+
+  function insertIntoInput(el, stored, piece, maxLen) {
+    const start = Math.min(stored.start, el.value.length);
+    const end = Math.min(Math.max(stored.end, start), el.value.length);
+    const before = el.value.slice(0, start);
+    const after = el.value.slice(end);
+    const needsSpace = before && !/\s$/.test(before) && !/^\s/.test(piece) && !/^[,.!?、。！？]/.test(piece);
+    let insert = `${needsSpace && /[A-Za-z]/.test(piece) ? ' ' : ''}${piece}`;
+    if (maxLen) {
+      const room = Math.max(0, maxLen - (before.length + after.length));
+      insert = [...insert].slice(0, room).join('');
     }
+    if (!insert) return stored;
+    el.value = `${before}${insert}${after}`;
+    const pos = before.length + insert.length;
+    try {
+      el.setSelectionRange(pos, pos);
+    } catch {
+      // unfocused
+    }
+    return { start: pos, end: pos };
+  }
+
+  function insertAtCaret(text) {
+    const piece = String(text ?? '');
+    if (!piece) return;
+    if (insertTarget === 'title' && titleEl) {
+      titleCaret = insertIntoInput(titleEl, titleCaret, piece, 80);
+      if (currentNote) currentNote.title = titleEl.value;
+      window.clearTimeout(titleTimer);
+      titleTimer = window.setTimeout(() => persistNote().catch(() => {}), 400);
+      return;
+    }
+    if (!sourceEl) return;
+    rememberCaret();
+    caret = insertIntoInput(sourceEl, caret, piece);
+    fitCompose();
+  }
+
+    async function submitTranslate() {
+    const button = document.getElementById('note-enter');
+    if (button) {
+      button.disabled = true;
+      button.textContent = 'Translating…';
+    }
+    hideKeyboard?.();
+    try {
+      await translateNote();
+    } finally {
+      if (button) {
+        button.disabled = false;
+        button.textContent = editingId ? 'Update' : 'Enter';
+      }
+    }
+  }
+
+  function insertFromComposer() {
+    if (!isEditing()) return false;
+    const text = stripTags(getPhrase());
+    if (!text) return false;
+    insertAtCaret(text);
+    setPhrase('');
+    return true;
+  }
+
+  async function commitFromComposer() {
+    return insertFromComposer();
   }
 
   async function onCandidatePicked(value) {
     if (!isEditing()) return false;
     const piece = stripTags(value || '');
     if (!piece) return false;
-    const focused = focusedSource();
-    if (focused) {
-      const tool = toolForSource(focused);
-      if (tool) {
-        tool.appendSource(piece);
-        await commitTool(tool);
-        setPhrase('');
-        return true;
+    insertAtCaret(piece);
+    setPhrase('');
+    return true;
+  }
+
+  function mountEditor() {
+    if (!editorHolder) return;
+    editorHolder.replaceChildren();
+    const compose = document.createElement('div');
+    compose.className = 'note-compose';
+    sourceEl = document.createElement('textarea');
+    sourceEl.className = 'note-source';
+    sourceEl.setAttribute('aria-label', 'Note');
+    sourceEl.placeholder = 'Write here, then tap Enter.';
+    sourceEl.spellcheck = false;
+    sourceEl.lang = langById(getLanguage()).htmlLang;
+    sourceEl.value = '';
+    sourceEl.addEventListener('focus', rememberCaret);
+    sourceEl.addEventListener('input', () => {
+      rememberCaret();
+      fitCompose();
+    });
+    sourceEl.addEventListener('click', rememberCaret);
+    sourceEl.addEventListener('keyup', rememberCaret);
+    sourceEl.addEventListener('select', rememberCaret);
+    sourceEl.addEventListener('mouseup', rememberCaret);
+    sourceEl.addEventListener('touchend', rememberCaret);
+    sourceEl.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' || event.isComposing) return;
+      if (event.metaKey || event.ctrlKey) {
+        event.preventDefault();
+        submitTranslate();
       }
-    }
-    const next = `${stripTags(getPhrase())}`;
-    if (!next.trim()) return false;
-    return commitFromComposer({ fromCandidate: true });
+    });
+    const submit = document.createElement('button');
+    submit.type = 'button';
+    submit.className = 'note-enter';
+    submit.id = 'note-enter';
+    submit.textContent = 'Enter';
+    submit.setAttribute('aria-label', 'Translate into a card');
+    submit.addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (submit.disabled) return;
+      submitTranslate();
+    });
+    submit.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+    });
+    compose.append(sourceEl, submit);
+    cardsEl = document.createElement('div');
+    cardsEl.className = 'note-cards';
+    editorHolder.append(compose, cardsEl);
+    renderCards();
+    fitCompose();
+  }
+
+  function destroyEditor() {
+    window.clearTimeout(saveTimer);
+    sourceEl = null;
+    cardsEl = null;
+    if (editorHolder) editorHolder.replaceChildren();
   }
 
   async function renderList() {
@@ -442,7 +620,7 @@ export function createNotesController({
         const meta = document.createElement('div');
         meta.className = 'notes-meta';
         const count = (note.blocks || []).filter((block) => stripTags(block.source || '').trim()).length;
-        meta.textContent = [noteWhen(note), count ? `${count} line${count === 1 ? '' : 's'}` : '']
+        meta.textContent = [noteWhen(note), count ? `${count} card${count === 1 ? '' : 's'}` : '']
           .filter(Boolean)
           .join('  ·  ');
         open.append(title, meta);
@@ -461,6 +639,9 @@ export function createNotesController({
 
   function showList() {
     currentNote = null;
+    cards = [];
+    editingId = null;
+    selectedIds.clear();
     if (listView) listView.hidden = false;
     if (editorView) editorView.hidden = true;
     setNoteOpenClass();
@@ -468,10 +649,30 @@ export function createNotesController({
     if (entered) renderList();
   }
 
+  async function showEditor(note) {
+    currentNote = note;
+    cards = (note.blocks || [])
+      .filter((block) => stripTags(block.source || '').trim())
+      .map((block) => ({
+        id: block.id || newBlockId(),
+        type: 'paragraph',
+        source: stripTags(block.source || ''),
+        lang: block.lang || getLanguage(),
+        translations: { ...emptyTranslations(), ...(block.translations || {}) },
+      }));
+    if (titleEl) titleEl.value = note.title || '';
+    if (listView) listView.hidden = true;
+    if (editorView) editorView.hidden = false;
+    setNoteOpenClass();
+    applyViewLang();
+    insertTarget = 'body';
+    mountEditor();
+  }
+
   async function openNote(id) {
     const uid = userId();
     if (!uid) {
-      setStatus('Sign in to write notes.');
+      setStatus('Sign in with G to save notes to Firestore.');
       return;
     }
     const note = await getNote(uid, id);
@@ -480,29 +681,31 @@ export function createNotesController({
       showList();
       return;
     }
-    currentNote = note;
-    if (titleEl) titleEl.value = note.title || '';
-    if (listView) listView.hidden = true;
-    if (editorView) editorView.hidden = false;
-    setNoteOpenClass();
-    applyViewLang();
-    await ensureEditor(blocksToEditor(note.blocks || []));
+    await showEditor(note);
   }
 
   async function createAndOpen() {
     const uid = userId();
-    if (!uid) {
-      setStatus('Sign in to write notes.');
-      return;
+    if (uid) {
+      setStatus('Creating…');
+      try {
+        const id = await createNote(uid, { title: '', sourceLang: getLanguage(), blocks: [] });
+        setStatus('');
+        await openNote(id);
+        return;
+      } catch (error) {
+        setStatus(error.message || 'Could not save to Firestore. Working locally.');
+      }
+    } else {
+      setStatus('Working locally. Sign in with G to save.');
     }
-    setStatus('Creating…');
-    try {
-      const id = await createNote(uid, { title: '', sourceLang: getLanguage(), blocks: [] });
-      setStatus('');
-      await openNote(id);
-    } catch (error) {
-      setStatus(error.message || 'Could not create note.');
-    }
+    await showEditor({
+      id: `local-${Date.now().toString(36)}`,
+      title: '',
+      sourceLang: getLanguage(),
+      blocks: [],
+      local: true,
+    });
   }
 
   async function removeCurrent() {
@@ -510,7 +713,7 @@ export function createNotesController({
     if (!uid || !currentNote?.id) return;
     const label = notePreview(currentNote);
     if (!window.confirm(`Delete “${label}”?`)) return;
-    await deleteNote(uid, currentNote.id);
+    if (!currentNote.local) await deleteNote(uid, currentNote.id);
     showList();
   }
 
@@ -539,12 +742,22 @@ export function createNotesController({
       showList();
       return;
     }
-    if (hasOpenNote()) openNote(currentNote.id);
+    if (hasOpenNote() && !String(currentNote.id).startsWith('local-')) openNote(currentNote.id);
     else renderList();
   }
 
   document.getElementById('note-new')?.addEventListener('click', () => {
     createAndOpen();
+  });
+  document.getElementById('note-save')?.addEventListener('click', async () => {
+    if (!hasOpenNote()) return;
+    setStatus('Saving…');
+    try {
+      await persistNote();
+      setStatus(userId() ? 'Saved.' : 'Saved locally. Sign in with G to keep it.');
+    } catch (error) {
+      setStatus(error.message || 'Could not save note.');
+    }
   });
   document.getElementById('note-back')?.addEventListener('click', async () => {
     try {
@@ -557,7 +770,14 @@ export function createNotesController({
   document.getElementById('note-delete')?.addEventListener('click', () => {
     removeCurrent();
   });
+  titleEl?.addEventListener('focus', rememberTitleCaret);
+  titleEl?.addEventListener('click', rememberTitleCaret);
+  titleEl?.addEventListener('keyup', rememberTitleCaret);
+  titleEl?.addEventListener('select', rememberTitleCaret);
+  titleEl?.addEventListener('mouseup', rememberTitleCaret);
+  titleEl?.addEventListener('touchend', rememberTitleCaret);
   titleEl?.addEventListener('input', () => {
+    rememberTitleCaret();
     if (currentNote) currentNote.title = titleEl.value;
     window.clearTimeout(titleTimer);
     titleTimer = window.setTimeout(() => persistNote().catch(() => {}), 400);
@@ -571,8 +791,20 @@ export function createNotesController({
   viewLangs?.addEventListener('click', (event) => {
     const button = event.target.closest('[data-view-lang]');
     if (!button) return;
-    viewLang = button.dataset.viewLang || 'all';
+    const key = button.dataset.viewLang || 'all';
+    if (key === 'all') {
+      viewKeys = new Set(['all']);
+    } else {
+      viewKeys.delete('all');
+      if (viewKeys.has(key)) viewKeys.delete(key);
+      else viewKeys.add(key);
+      if (!viewKeys.size) viewKeys.add('all');
+    }
     applyViewLang();
+    renderCards();
+  });
+  document.getElementById('note-delete-selected')?.addEventListener('click', () => {
+    removeSelected();
   });
   listEl?.addEventListener('click', async (event) => {
     const row = event.target.closest('.notes-row');
@@ -587,24 +819,24 @@ export function createNotesController({
       else renderList();
       return;
     }
-    if (event.target.closest('.notes-item')) openNote(row.dataset.id);
+    openNote(row.dataset.id);
   });
 
   applyViewLang();
-
-  function hasFocusedBlock() {
-    return Boolean(focusedSource());
-  }
 
   return {
     enter,
     leave,
     isEditing,
     hasOpenNote,
-    hasFocusedBlock,
+    hasFocusedBlock: () => document.activeElement === sourceEl,
     onAuth,
     commitFromComposer,
+    insertAtCaret,
+    insertFromComposer,
     onCandidatePicked,
     persistNote,
+    showList,
+    renderList,
   };
 }
