@@ -4,7 +4,7 @@ A mobile web app for drawing or typing **English, Chinese, Japanese, or Korean**
 
 Tap a translation to hear it. Press and hold to copy. Tap **⤢** for the full text and readings.
 
-**Live:** [https://zh-kr-jp.web.app](https://zh-kr-jp.web.app)
+**Live:** [https://zh-kr-jp.web.app](https://zh-kr-jp.web.app) · [GitHub Pages](https://kevinkicho.github.io/zh-jp-kr/)
 
 <p align="center">
   <img src="screenshots/app-zh.png" alt="Drawing 今天 in simplified Chinese" width="28%" />
