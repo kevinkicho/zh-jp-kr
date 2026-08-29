@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#c23b22"/>
+  <text
+    x="256"
+    y="338"
+    text-anchor="middle"
+    font-family="Noto Serif SC, Noto Serif JP, serif"
+    font-size="300"
+    font-weight="700"
+    fill="#f8f1e4"
+  >三</text>
+</svg>

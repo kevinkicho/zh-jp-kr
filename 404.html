@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en" translate="no" class="notranslate">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="google" content="notranslate" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no"
+    />
+    <meta name="theme-color" content="#141210" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="三筆" />
+    <meta
+      name="description"
+      content="Draw Chinese, Japanese, or Korean with your finger and see translations in all three languages."
+    />
+    <link rel="manifest" href="./manifest.json" />
+    <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="./icon-192.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;600&family=Noto+Sans+KR:wght@400;600&family=Noto+Sans+SC:wght@400;600&family=Noto+Sans+TC:wght@400;600&family=Noto+Serif+JP:wght@600&family=Noto+Serif+KR:wght@600&family=Noto+Serif+SC:wght@600&family=Noto+Serif+TC:wght@600&display=swap"
+      rel="stylesheet"
+    />
+    <title>三筆 Draw 中日韓</title>
+    <script type="module" crossorigin src="./assets/index-DkkLZsZW.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-Cu-69cn3.css">
+  </head>
+  <body>
+    <div id="app">
+      <button type="button" id="keyboard-trap" class="keyboard-trap" tabindex="-1" aria-hidden="true"></button>
+      <header class="top">
+        <div class="brand">
+          <span class="seal" aria-hidden="true">三</span>
+          <div>
+            <h1>三筆</h1>
+            <p>draw translate 中日韓</p>
+          </div>
+        </div>
+        <div class="top-right">
+          <div class="layouts" role="tablist" aria-label="Result layout">
+            <button type="button" data-layout="grid" aria-selected="true" title="2×2">田</button>
+            <button type="button" data-layout="stack" aria-selected="false" title="Stacked">☰</button>
+          </div>
+          <select id="lang-select" class="lang-select" aria-label="Input language">
+            <option value="en">English</option>
+            <option value="zh_CN">简体中文</option>
+            <option value="zh_TW">繁體中文</option>
+            <option value="ja">日本語</option>
+            <option value="ko">한국어</option>
+          </select>
+          <button type="button" class="account" id="account" aria-label="Sign in with Google">
+            <img id="account-photo" alt="" hidden />
+            <span id="account-label">G</span>
+          </button>
+        </div>
+      </header>
+
+      <div class="mode-switch" role="tablist" aria-label="App mode">
+        <button type="button" data-mode="dictionary" aria-selected="true">Dictionary</button>
+        <button type="button" data-mode="notes" aria-selected="false">Notes</button>
+      </div>
+
+      <form class="composer" id="phrase-form" action="#" method="post" autocomplete="off" novalidate>
+        <button type="button" class="icon-btn" id="backspace" aria-label="Delete last character">
+          ⌫
+        </button>
+        <input
+          id="phrase"
+          type="search"
+          enterkeyhint="done"
+          inputmode="search"
+          autocomplete="off"
+          autocorrect="off"
+          autocapitalize="off"
+          spellcheck="false"
+          placeholder="Draw or type…"
+          lang="zh-CN"
+        />
+        <button type="submit" class="composer-submit" tabindex="-1">Done</button>
+        <button type="button" class="icon-btn" id="clear-text" aria-label="Clear text">✕</button>
+      </form>
+
+      <div class="workspace">
+        <section class="pad" id="pad">
+          <canvas id="ink"></canvas>
+          <p class="hint" id="hint">Draw a character with your finger</p>
+        </section>
+        <div class="tools">
+          <button type="button" id="undo">Undo</button>
+          <button type="button" id="clear">Clear</button>
+          <button type="button" id="accept" class="primary">Add</button>
+        </div>
+        <div class="tray">
+          <div class="candidates" id="candidates"></div>
+          <p class="status" id="status" hidden></p>
+        </div>
+      </div>
+
+      <section class="results notranslate" id="results" translate="no">
+        <article class="card english notranslate" translate="no" data-key="en" data-lang="en-US" data-text="" title="Tap to speak, hold to copy">
+          <button type="button" class="card-expand" aria-label="View full translation" hidden>⤢</button>
+          <p class="text"></p>
+          <p class="reading" hidden></p>
+          <p class="explain" hidden></p>
+        </article>
+        <article class="card notranslate" translate="no" data-key="zh_CN" data-lang="zh-CN" data-text="" title="Tap to speak, hold to copy">
+          <button type="button" class="card-expand" aria-label="View full translation" hidden>⤢</button>
+          <p class="text"></p>
+          <p class="reading" hidden></p>
+          <p class="explain" hidden></p>
+        </article>
+        <article class="card notranslate" translate="no" data-key="zh_TW" data-lang="zh-TW" data-text="" title="Tap to speak, hold to copy">
+          <button type="button" class="card-expand" aria-label="View full translation" hidden>⤢</button>
+          <p class="text"></p>
+          <p class="reading" hidden></p>
+          <p class="explain" hidden></p>
+        </article>
+        <article class="card notranslate" translate="no" data-key="ko" data-lang="ko-KR" data-text="" title="Tap to speak, hold to copy">
+          <button type="button" class="card-expand" aria-label="View full translation" hidden>⤢</button>
+          <p class="text"></p>
+          <p class="reading" hidden></p>
+          <p class="explain" hidden></p>
+        </article>
+        <article class="card notranslate" translate="no" data-key="ja" data-lang="ja-JP" data-text="" title="Tap to speak, hold to copy">
+          <button type="button" class="card-expand" aria-label="View full translation" hidden>⤢</button>
+          <p class="text"></p>
+          <p class="reading" hidden></p>
+          <p class="explain" hidden></p>
+        </article>
+      </section>
+
+      <section class="notes-pane" id="notes-pane" hidden>
+        <div id="notes-list-view">
+          <div class="notes-list-head">
+            <h2>Notes</h2>
+            <button type="button" id="note-new" class="note-new">New</button>
+          </div>
+          <div class="notes-list" id="notes-list">
+            <p class="empty-note">Sign in to write notes.</p>
+          </div>
+        </div>
+        <div id="note-editor-view" hidden data-view-lang="all">
+          <div class="note-editor-head">
+            <button type="button" class="icon-btn" id="note-back" aria-label="Back to notes">←</button>
+            <input
+              id="note-title"
+              type="text"
+              maxlength="80"
+              placeholder="Untitled"
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <button type="button" id="note-save" class="note-save">Save</button>
+            <button type="button" class="icon-btn" id="note-delete" aria-label="Delete note">✕</button>
+          </div>
+          <div class="note-view-langs" id="note-view-langs" role="group" aria-label="Shown languages">
+            <button type="button" data-view-lang="all" aria-pressed="true">All</button>
+            <button type="button" data-view-lang="en" aria-pressed="false">EN</button>
+            <button type="button" data-view-lang="zh_CN" aria-pressed="false">简</button>
+            <button type="button" data-view-lang="zh_pinyin" aria-pressed="false">拼音</button>
+            <button type="button" data-view-lang="zh_TW" aria-pressed="false">繁</button>
+            <button type="button" data-view-lang="ja" aria-pressed="false">日</button>
+            <button type="button" data-view-lang="ja_romaji" aria-pressed="false">ロマ</button>
+            <button type="button" data-view-lang="ko" aria-pressed="false">한</button>
+            <button type="button" data-view-lang="ko_romanization" aria-pressed="false">로마</button>
+          </div>
+          <div class="note-card-tools" id="note-card-tools" hidden>
+            <button type="button" id="note-delete-selected" class="note-delete-selected">Delete selected</button>
+          </div>
+          <div class="note-editor notranslate" id="note-editor" translate="no"></div>
+        </div>
+      </section>
+
+      <div class="sheet-backdrop" id="sheet-backdrop" hidden></div>
+
+      <div class="sheet" id="menu-sheet" hidden>
+        <div class="sheet-user">
+          <img id="menu-photo" alt="" />
+          <div>
+            <strong id="menu-name">Signed in</strong>
+            <p id="menu-email"></p>
+          </div>
+        </div>
+        <button type="button" class="sheet-item" data-open="history">History</button>
+        <button type="button" class="sheet-item" data-open="notes">Load notes</button>
+        <button type="button" class="sheet-item" data-open="settings">Settings</button>
+        <button type="button" class="sheet-item danger" id="sign-out">Sign out</button>
+      </div>
+
+      <div class="sheet" id="history-sheet" hidden>
+        <div class="sheet-head">
+          <h2>History</h2>
+          <button type="button" class="icon-btn sheet-close" aria-label="Close">✕</button>
+        </div>
+        <div class="history-tools" id="history-tools" hidden>
+          <input
+            id="history-search"
+            type="search"
+            enterkeyhint="search"
+            placeholder="Search"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <div class="history-filters">
+            <select id="history-lang" aria-label="Filter language">
+              <option value="">All</option>
+              <option value="en">English</option>
+              <option value="zh_CN">简体中文</option>
+              <option value="zh_TW">繁體中文</option>
+              <option value="ja">日本語</option>
+              <option value="ko">한국어</option>
+            </select>
+            <select id="history-sort" aria-label="Sort">
+              <option value="newest">Newest</option>
+              <option value="oldest">Oldest</option>
+              <option value="az">A–Z</option>
+            </select>
+          </div>
+        </div>
+        <div class="sheet-body" id="history-list">
+          <p class="empty-note">Sign in to keep translations.</p>
+        </div>
+      </div>
+
+      <div class="sheet" id="card-sheet" hidden>
+        <div class="sheet-head">
+          <h2 id="card-sheet-title">Translation</h2>
+          <button type="button" class="icon-btn sheet-close" aria-label="Close">✕</button>
+        </div>
+        <div class="sheet-body card-sheet-body notranslate" id="card-sheet-body" translate="no" title="Tap to speak, hold to copy">
+          <p class="card-sheet-text" id="card-sheet-text"></p>
+          <p class="card-sheet-reading" id="card-sheet-reading" hidden></p>
+          <p class="card-sheet-hint">Tap to speak, hold to copy</p>
+        </div>
+      </div>
+
+      <div class="sheet" id="settings-sheet" hidden>
+        <div class="sheet-head">
+          <h2>Settings</h2>
+          <button type="button" class="icon-btn sheet-close" aria-label="Close">✕</button>
+        </div>
+        <div class="sheet-body settings-body">
+          <label class="setting">
+            <span>Result layout</span>
+            <select id="setting-layout">
+              <option value="grid">2×2 grid</option>
+              <option value="stack">Stacked rows</option>
+            </select>
+          </label>
+          <label class="setting">
+            <span>Save history</span>
+            <input type="checkbox" id="setting-history" checked />
+          </label>
+          <p class="setting-hint">Dictionary lookups and note lines are saved when this is on. Open them from History, or tap a note in the list.</p>
+          <label class="setting">
+            <span>Speak after translate</span>
+            <input type="checkbox" id="setting-speak" />
+          </label>
+          <label class="setting">
+            <span>Note card order</span>
+            <select id="setting-card-sort">
+              <option value="newest">Newest first</option>
+              <option value="oldest">Oldest first</option>
+            </select>
+          </label>
+          <p class="setting-hint">Newest first puts the latest card at the top of a note.</p>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

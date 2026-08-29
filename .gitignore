@@ -1,0 +1,10 @@
+node_modules
+dist
+.env
+*.log
+.DS_Store
+*firebase-adminsdk*.json
+.firebase
+firebase-debug.log
+.firebaserc.local
+zh-kr-jp-firebase-adminsdk-fbsvc-f66a0d33b2.json
