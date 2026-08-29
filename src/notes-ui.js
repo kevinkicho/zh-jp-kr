@@ -8,6 +8,7 @@ import {
   emptyTranslations,
   getNote,
   listNotes,
+  cardTime,
   newBlockId,
   nextFrontSortOrder,
   notePreview,
@@ -281,6 +282,7 @@ export function createNotesController({
   hideKeyboard,
   onOpenChange,
   onHistory,
+  getCardSort,
 }) {
   const pane = document.getElementById('notes-pane');
   const listView = document.getElementById('notes-list-view');
@@ -350,6 +352,29 @@ export function createNotesController({
     });
     const tools = document.getElementById('note-card-tools');
     if (tools) tools.hidden = selectedIds.size === 0;
+  }
+
+
+  function cardSortNewest() {
+    return getCardSort?.() !== 'oldest';
+  }
+
+  function ensureCardTimes() {
+    cards.forEach((block, index) => {
+      const n = Number(block.createdAt);
+      if (!Number.isFinite(n) || n <= 0) block.createdAt = index + 1;
+    });
+  }
+
+  function displayedCards() {
+    ensureCardTimes();
+    const list = cards.filter((block) => stripTags(block.source || '').trim());
+    const sign = cardSortNewest() ? -1 : 1;
+    return list.sort((a, b) => {
+      const diff = cardTime(a, 0) - cardTime(b, 0);
+      if (diff) return sign * diff;
+      return sign * String(a.id || '').localeCompare(String(b.id || ''));
+    });
   }
 
   function composeText() {
@@ -542,24 +567,35 @@ export function createNotesController({
   function renderCards() {
     if (!cardsEl) return;
     cardsEl.replaceChildren();
-    for (const block of cards) {
-      if (!stripTags(block.source || '').trim()) continue;
+    for (const block of displayedCards()) {
       cardsEl.append(cardNode(block));
     }
   }
 
   function reorderCards(from, to) {
-    if (from === to || from < 0 || to < 0 || from >= cards.length || to > cards.length) return;
-    const next = cards.slice();
+    const shown = displayedCards();
+    if (from === to || from < 0 || to < 0 || from >= shown.length || to > shown.length) return;
+    const next = shown.slice();
     const [moved] = next.splice(from, 1);
     if (!moved) return;
     next.splice(to, 0, moved);
-    cards = next;
+    const base = Date.now();
+    const newest = cardSortNewest();
+    next.forEach((block, index) => {
+      block.createdAt = newest ? base - index : base + index;
+    });
+    const leftover = cards.filter((block) => !next.some((item) => item.id === block.id));
+    cards = next.concat(leftover);
     renderCards();
     applyViewLang();
     persistNote().catch((error) => {
       setStatus(error.message || 'Could not save card order.');
     });
+  }
+
+  function refreshCardOrder() {
+    renderCards();
+    applyViewLang();
   }
 
   function queueSave() {
@@ -579,6 +615,7 @@ export function createNotesController({
       type: 'paragraph',
       source: stripTags(block.source || ''),
       lang: block.lang || getLanguage(),
+      createdAt: cardTime(block, Date.now()),
       translations: { ...emptyTranslations(), ...(block.translations || {}) },
     }));
     const uid = userId();
@@ -631,14 +668,15 @@ export function createNotesController({
         (key) => key !== mapped.fromLang && String(mapped.translations[key] || '').trim()
       );
       if (!hasText) throw new Error('Translation came back empty. Try Enter again.');
+      const index = editingId ? cards.findIndex((item) => item.id === editingId) : -1;
       const next = {
         id: editingId || newBlockId(),
         type: 'paragraph',
         source,
         lang: mapped.fromLang,
+        createdAt: index >= 0 ? cardTime(cards[index], Date.now()) : Date.now(),
         translations: mapped.translations,
       };
-      const index = editingId ? cards.findIndex((item) => item.id === editingId) : -1;
       if (index >= 0) cards[index] = next;
       else cards.push(next);
       editingId = null;
@@ -919,11 +957,12 @@ export function createNotesController({
     currentNote = note;
     cards = (note.blocks || [])
       .filter((block) => stripTags(block.source || '').trim())
-      .map((block) => ({
+      .map((block, index) => ({
         id: block.id || newBlockId(),
         type: 'paragraph',
         source: stripTags(block.source || ''),
         lang: block.lang || getLanguage(),
+        createdAt: cardTime(block, index + 1),
         translations: { ...emptyTranslations(), ...(block.translations || {}) },
       }));
     if (titleEl) titleEl.value = note.title || '';
@@ -1138,5 +1177,6 @@ export function createNotesController({
     persistNote,
     showList,
     renderList,
+    refreshCardOrder,
   };
 }

@@ -47,14 +47,20 @@ export function newBlockId() {
   return `b${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 }
 
-export function newBlock({ source = '', lang = 'zh_CN', type = 'paragraph', translations, id } = {}) {
+export function newBlock({ source = '', lang = 'zh_CN', type = 'paragraph', translations, id, createdAt } = {}) {
   return {
     id: id || newBlockId(),
     type: type === 'header' || type === 'list' ? type : 'paragraph',
     source: stripTags(source),
     lang,
+    createdAt: Number.isFinite(Number(createdAt)) ? Number(createdAt) : Date.now(),
     translations: { ...emptyTranslations(), ...(translations || {}) },
   };
+}
+
+export function cardTime(block, fallback = 0) {
+  const n = Number(block?.createdAt);
+  return Number.isFinite(n) ? n : fallback;
 }
 
 export function translationsFromApi(text, language, data) {

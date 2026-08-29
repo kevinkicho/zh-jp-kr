@@ -43,6 +43,7 @@ const historySortEl = document.getElementById('history-sort');
 const settingLayoutEl = document.getElementById('setting-layout');
 const settingHistoryEl = document.getElementById('setting-history');
 const settingSpeakEl = document.getElementById('setting-speak');
+const settingCardSortEl = document.getElementById('setting-card-sort');
 
 let language = localStorage.getItem('sanpitsu-lang') || 'zh_CN';
 if (!langById(language).id || language !== langById(language).id) language = 'zh_CN';
@@ -67,6 +68,7 @@ let historySearchTimer = 0;
 const HISTORY_PAGE = 20;
 let saveHistoryEnabled = localStorage.getItem('sanpitsu-save-history') !== '0';
 let speakAfterTranslate = localStorage.getItem('sanpitsu-speak') === '1';
+let cardSort = localStorage.getItem('sanpitsu-card-sort') === 'oldest' ? 'oldest' : 'newest';
 let appMode = localStorage.getItem('sanpitsu-mode') === 'notes' ? 'notes' : 'dictionary';
 let notes = null;
 
@@ -97,6 +99,7 @@ function persistPrefs() {
       layout,
       saveHistory: saveHistoryEnabled,
       speakAfterTranslate,
+      cardSort,
     }).catch(() => {});
   }
 }
@@ -623,6 +626,7 @@ notes = createNotesController({
     window.setTimeout(() => pad.resize(), 40);
   },
   onHistory: persistHistory,
+  getCardSort: () => cardSort,
 });
 
 document.querySelector('.mode-switch')?.addEventListener('click', (event) => {
@@ -683,6 +687,7 @@ function syncSettingsForm() {
   settingLayoutEl.value = layout;
   settingHistoryEl.checked = saveHistoryEnabled;
   settingSpeakEl.checked = speakAfterTranslate;
+  if (settingCardSortEl) settingCardSortEl.value = cardSort;
 }
 
 function historyPreview(entry) {
@@ -1038,6 +1043,12 @@ settingSpeakEl.addEventListener('change', () => {
   localStorage.setItem('sanpitsu-speak', speakAfterTranslate ? '1' : '0');
   persistPrefs();
 });
+settingCardSortEl?.addEventListener('change', () => {
+  cardSort = settingCardSortEl.value === 'oldest' ? 'oldest' : 'newest';
+  localStorage.setItem('sanpitsu-card-sort', cardSort);
+  persistPrefs();
+  notes?.refreshCardOrder?.();
+});
 
 async function startApp() {
   await initFirebase();
@@ -1067,6 +1078,11 @@ async function startApp() {
     if (typeof prefs.speakAfterTranslate === 'boolean') {
       speakAfterTranslate = prefs.speakAfterTranslate;
       localStorage.setItem('sanpitsu-speak', speakAfterTranslate ? '1' : '0');
+    }
+    if (prefs.cardSort === 'oldest' || prefs.cardSort === 'newest') {
+      cardSort = prefs.cardSort;
+      localStorage.setItem('sanpitsu-card-sort', cardSort);
+      notes?.refreshCardOrder?.();
     }
     applyingRemotePrefs = false;
     syncSettingsForm();
