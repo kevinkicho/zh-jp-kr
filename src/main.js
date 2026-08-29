@@ -4,6 +4,7 @@ import { copyText, detectSourceLang, langById, recognize, speak, translate } fro
 import {
   deleteHistory,
   firebaseEnabled,
+  initFirebase,
   loadHistoryPage,
   saveHistory,
   savePrefs,
@@ -12,6 +13,7 @@ import {
   watchAuth,
   watchPrefs,
 } from './firebase.js';
+
 import { createNotesController } from './notes-ui.js';
 
 const appEl = document.getElementById('app');
@@ -1037,7 +1039,9 @@ settingSpeakEl.addEventListener('change', () => {
   persistPrefs();
 });
 
-watchAuth((next) => {
+async function startApp() {
+  await initFirebase();
+  watchAuth((next) => {
   user = next;
   renderAccount();
   notes?.onAuth(next);
@@ -1085,3 +1089,6 @@ if ('serviceWorker' in navigator) {
 }
 
 window.speechSynthesis?.getVoices();
+}
+
+startApp();

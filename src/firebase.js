@@ -23,23 +23,51 @@ import {
 } from 'firebase/firestore';
 import { getDatabase, onValue, ref, update } from 'firebase/database';
 
-const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
-  databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL,
-};
+const CONFIG_URLS = [
+  '/firebase-config.json',
+  '/api/firebase-config',
+  'https://zh-kr-jp.web.app/firebase-config.json',
+  'https://zh-kr-jp.web.app/api/firebase-config',
+];
 
-const enabled = Boolean(firebaseConfig.apiKey && firebaseConfig.projectId);
-
-const app = enabled ? initializeApp(firebaseConfig) : null;
-const auth = app ? getAuth(app) : null;
-const db = app ? getFirestore(app) : null;
-const rtdb = app ? getDatabase(app) : null;
+let enabled = false;
+let app = null;
+let auth = null;
+let db = null;
+let rtdb = null;
 const provider = new GoogleAuthProvider();
+
+function applyConfig(config) {
+  if (!config?.apiKey || !config?.projectId || app) return;
+  app = initializeApp(config);
+  auth = getAuth(app);
+  db = getFirestore(app);
+  rtdb = getDatabase(app);
+  enabled = true;
+}
+
+async function readConfig(url) {
+  const response = await fetch(url, { headers: { Accept: 'application/json' } });
+  if (!response.ok) return null;
+  const data = await response.json().catch(() => null);
+  return data?.apiKey ? data : null;
+}
+
+export async function initFirebase() {
+  if (enabled) return true;
+  const seen = new Set();
+  for (const url of CONFIG_URLS) {
+    if (seen.has(url)) continue;
+    seen.add(url);
+    try {
+      applyConfig(await readConfig(url));
+    } catch {
+      // try the next source
+    }
+    if (enabled) return true;
+  }
+  return false;
+}
 
 let prefsUnsub = null;
 

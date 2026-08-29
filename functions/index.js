@@ -33,7 +33,34 @@ function health(_req, res) {
   res.json({ ok: true, firebase: true, hasOllama: ollamaEnabled() });
 }
 
+function publicFirebaseConfig() {
+  const apiKey = process.env.VITE_FIREBASE_API_KEY || process.env.FIREBASE_WEB_API_KEY || '';
+  const projectId = process.env.VITE_FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID || '';
+  if (!apiKey || !projectId) return null;
+  return {
+    apiKey,
+    authDomain: process.env.VITE_FIREBASE_AUTH_DOMAIN || process.env.FIREBASE_AUTH_DOMAIN || '',
+    projectId,
+    storageBucket: process.env.VITE_FIREBASE_STORAGE_BUCKET || process.env.FIREBASE_STORAGE_BUCKET || '',
+    messagingSenderId: process.env.VITE_FIREBASE_MESSAGING_SENDER_ID || process.env.FIREBASE_MESSAGING_SENDER_ID || '',
+    appId: process.env.VITE_FIREBASE_APP_ID || process.env.FIREBASE_APP_ID || '',
+    databaseURL: process.env.VITE_FIREBASE_DATABASE_URL || process.env.FIREBASE_DATABASE_URL || '',
+  };
+}
+
+function firebaseConfig(_req, res) {
+  const config = publicFirebaseConfig();
+  if (!config) {
+    res.status(404).json({ error: 'Firebase web config is not set.' });
+    return;
+  }
+  res.set('Cache-Control', 'no-store');
+  res.json(config);
+}
+
 app.get('/api/health', health);
+app.get('/api/firebase-config', firebaseConfig);
+app.get('/firebase-config', firebaseConfig);
 app.get('/health', health);
 
 app.post('/api/recognize', async (req, res) => {

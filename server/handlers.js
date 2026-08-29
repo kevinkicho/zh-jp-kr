@@ -2,6 +2,32 @@ import { detectSourceLang } from '../src/detect.js';
 import { ollamaEnabled, translateWithOllama } from '../functions/ollama.js';
 import { firebaseReady } from './firebase.js';
 
+
+export function publicFirebaseConfig() {
+  const apiKey = process.env.VITE_FIREBASE_API_KEY || process.env.FIREBASE_WEB_API_KEY || '';
+  const projectId = process.env.VITE_FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID || '';
+  if (!apiKey || !projectId) return null;
+  return {
+    apiKey,
+    authDomain: process.env.VITE_FIREBASE_AUTH_DOMAIN || process.env.FIREBASE_AUTH_DOMAIN || '',
+    projectId,
+    storageBucket: process.env.VITE_FIREBASE_STORAGE_BUCKET || process.env.FIREBASE_STORAGE_BUCKET || '',
+    messagingSenderId: process.env.VITE_FIREBASE_MESSAGING_SENDER_ID || process.env.FIREBASE_MESSAGING_SENDER_ID || '',
+    appId: process.env.VITE_FIREBASE_APP_ID || process.env.FIREBASE_APP_ID || '',
+    databaseURL: process.env.VITE_FIREBASE_DATABASE_URL || process.env.FIREBASE_DATABASE_URL || '',
+  };
+}
+
+export function firebaseConfigHandler(_req, res) {
+  const config = publicFirebaseConfig();
+  if (!config) {
+    res.status(404).json({ error: 'Firebase web config is not set.' });
+    return;
+  }
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(config);
+}
+
 const LANG_NAMES = {
   en: 'English',
   zh_CN: 'Simplified Chinese',

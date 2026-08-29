@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import express from 'express';
-import { healthHandler, recognizeHandler, translateHandler } from './handlers.js';
+import { firebaseConfigHandler, healthHandler, recognizeHandler, translateHandler } from './handlers.js';
 import { initAdmin } from './firebase.js';
 
 dotenv.config();
@@ -19,6 +19,7 @@ const app = express();
 app.use(express.json({ limit: '2mb' }));
 
 app.get('/api/health', healthHandler);
+app.get('/api/firebase-config', firebaseConfigHandler);
 app.post('/api/recognize', recognizeHandler);
 app.post('/api/translate', translateHandler);
 
